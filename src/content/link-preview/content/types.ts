@@ -1,6 +1,6 @@
 import type { ContentFetchDiagnostics, TranscriptDiagnostics, TranscriptSource } from '../types.js'
 
-export const DEFAULT_TIMEOUT_MS = 5000
+export const DEFAULT_TIMEOUT_MS = 120_000
 export type YoutubeTranscriptMode = 'auto' | 'web' | 'apify'
 export type FirecrawlMode = 'off' | 'auto' | 'always'
 

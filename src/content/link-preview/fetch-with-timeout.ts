@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_TIMEOUT_MS = 120_000
 
 type FetchLike = typeof fetch
 type FetchArguments = Parameters<typeof fetch>

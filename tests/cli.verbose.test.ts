@@ -59,4 +59,47 @@ describe('--verbose', () => {
     expect(stderrText).toContain('extract firecrawl attempted=false used=false')
     expect(stderrText).toContain('extract transcript textProvided=false')
   })
+
+  it('uses ANSI colors when stderr is a rich TTY', async () => {
+    const html =
+      '<!doctype html><html><head><title>Hello</title></head>' +
+      '<body><article><p>Some article content.</p></article></body></html>'
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.url
+      if (url === 'https://example.com') {
+        return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html' } })
+      }
+      throw new Error(`Unexpected fetch call: ${url}`)
+    })
+
+    let stderrText = ''
+    const stderr = new Writable({
+      write(chunk, _encoding, callback) {
+        stderrText += chunk.toString()
+        callback()
+      },
+    })
+    ;(stderr as unknown as { isTTY?: boolean }).isTTY = true
+
+    const stdout = new Writable({
+      write(chunk, encoding, callback) {
+        void chunk
+        void encoding
+        callback()
+      },
+    })
+
+    await runCli(
+      ['--json', '--verbose', '--extract-only', '--firecrawl', 'off', 'https://example.com'],
+      {
+        env: { TERM: 'xterm-256color' },
+        fetch: fetchMock as unknown as typeof fetch,
+        stdout,
+        stderr,
+      }
+    )
+
+    expect(stderrText).toContain('\u001b[')
+  })
 })

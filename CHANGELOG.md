@@ -13,6 +13,8 @@ All notable changes to this project are documented here.
   - optional Apify fallback (requires `APIFY_API_TOKEN`)
   - fallback to `ytInitialPlayerResponse.videoDetails.shortDescription` when transcripts are unavailable
 - OpenAI summarization (Chat Completions API) with default model `gpt-5.2` (`OPENAI_API_KEY`, optional `OPENAI_MODEL`).
-- `--extract-only` (no LLM call), `--prompt` (prompt-only), `--json` (structured output), `--timeout`, `--verbose`.
+- `--extract-only` prefers Firecrawl Markdown for websites when `FIRECRAWL_API_KEY` is configured (override via `--firecrawl off`).
+- CLI defaults: `--timeout 2m`.
+- `--help` includes examples and required env vars.
+- `--extract-only` (no LLM call), `--prompt` (prompt-only), `--json` (structured output), `--verbose`.
 - Tests + coverage gate (>= 75%) via Vitest + v8 coverage; lint/format via Biome.
-

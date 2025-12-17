@@ -1,4 +1,4 @@
-import { Command } from 'commander'
+import { Command, CommanderError } from 'commander'
 import { createLinkPreviewClient } from './content/index.js'
 import { createFirecrawlScraper } from './firecrawl.js'
 import { parseDurationMs, parseFirecrawlMode, parseLengthArg, parseYoutubeMode } from './flags.js'
@@ -56,7 +56,7 @@ function buildProgram() {
     )
     .option(
       '--firecrawl <mode>',
-      'Firecrawl usage: off, auto (fallback), always (try Firecrawl first). Note: in --extract-only website mode, defaults to always.',
+      'Firecrawl usage: off, auto (fallback), always (try Firecrawl first). Note: in --extract-only website mode, defaults to always when FIRECRAWL_API_KEY is set.',
       'auto'
     )
     .option(
@@ -67,7 +67,7 @@ function buildProgram() {
     .option(
       '--timeout <duration>',
       'Timeout for content fetching and OpenAI request: 30 (seconds), 30s, 2m, 5000ms',
-      '30s'
+      '2m'
     )
     .option('--model <model>', 'OpenAI model', undefined)
     .option('--prompt', 'Print the prompt and exit', false)
@@ -75,6 +75,56 @@ function buildProgram() {
     .option('--json', 'Output structured JSON', false)
     .option('--verbose', 'Print detailed progress info to stderr', false)
     .allowExcessArguments(false)
+}
+
+function isRichTty(stream: NodeJS.WritableStream): boolean {
+  return Boolean((stream as unknown as { isTTY?: boolean }).isTTY)
+}
+
+function supportsColor(
+  stream: NodeJS.WritableStream,
+  env: Record<string, string | undefined>
+): boolean {
+  if (env.NO_COLOR) return false
+  if (env.FORCE_COLOR && env.FORCE_COLOR !== '0') return true
+  if (!isRichTty(stream)) return false
+  const term = env.TERM?.toLowerCase()
+  if (!term || term === 'dumb') return false
+  return true
+}
+
+function ansi(code: string, input: string, enabled: boolean): string {
+  if (!enabled) return input
+  return `\u001b[${code}m${input}\u001b[0m`
+}
+
+function attachRichHelp(
+  program: Command,
+  env: Record<string, string | undefined>,
+  stdout: NodeJS.WritableStream
+) {
+  const color = supportsColor(stdout, env)
+  const heading = (text: string) => ansi('1;36', text, color)
+  const cmd = (text: string) => ansi('1', text, color)
+  const dim = (text: string) => ansi('2', text, color)
+
+  program.addHelpText(
+    'after',
+    () => `
+${heading('Examples')}
+  ${cmd('summarize "https://example.com"')}
+  ${cmd('summarize "https://example.com" --extract-only')} ${dim('# website markdown (prefers Firecrawl when configured)')}
+  ${cmd('summarize "https://www.youtube.com/watch?v=I845O57ZSy4&t=11s" --extract-only --youtube web')}
+  ${cmd('summarize "https://example.com" --length 20k --timeout 2m --model gpt-5.2')}
+  ${cmd('summarize "https://example.com" --json --verbose')}
+
+${heading('Env Vars')}
+  OPENAI_API_KEY        required for summarization (otherwise prompt-only)
+  OPENAI_MODEL          optional (default: gpt-5.2-mini)
+  FIRECRAWL_API_KEY     optional website extraction fallback (Markdown)
+  APIFY_API_TOKEN       optional YouTube transcript fallback
+`
+  )
 }
 
 async function summarizeWithOpenAI({
@@ -246,11 +296,17 @@ function splitTextIntoChunks(input: string, maxCharacters: number): string[] {
 
 const VERBOSE_PREFIX = '[summarize]'
 
-function writeVerbose(stderr: NodeJS.WritableStream, verbose: boolean, message: string): void {
+function writeVerbose(
+  stderr: NodeJS.WritableStream,
+  verbose: boolean,
+  message: string,
+  color: boolean
+): void {
   if (!verbose) {
     return
   }
-  stderr.write(`${VERBOSE_PREFIX} ${message}\n`)
+  const prefix = ansi('36', VERBOSE_PREFIX, color)
+  stderr.write(`${prefix} ${message}\n`)
 }
 
 function formatOptionalString(value: string | null | undefined): string {
@@ -283,12 +339,30 @@ export async function runCli(
 ): Promise<void> {
   const normalizedArgv = argv.filter((arg) => arg !== '--')
   const program = buildProgram()
-  program.parse(normalizedArgv, { from: 'user' })
+  program.configureOutput({
+    writeOut(str) {
+      stdout.write(str)
+    },
+    writeErr(str) {
+      stderr.write(str)
+    },
+  })
+  program.exitOverride()
+  attachRichHelp(program, env, stdout)
+
+  try {
+    program.parse(normalizedArgv, { from: 'user' })
+  } catch (error) {
+    if (error instanceof CommanderError && error.code === 'commander.helpDisplayed') {
+      return
+    }
+    throw error
+  }
 
   const url = program.args[0]
   if (!url) {
     throw new Error(
-      'Usage: summarize <url> [--youtube auto|web|apify] [--length 20k] [--timeout 30s] [--json]'
+      'Usage: summarize <url> [--youtube auto|web|apify] [--length 20k] [--timeout 2m] [--json]'
     )
   }
 
@@ -300,26 +374,20 @@ export async function runCli(
   const json = Boolean(program.opts().json)
   const verbose = Boolean(program.opts().verbose)
 
-  if (printPrompt && extractOnly) {
-    throw new Error('--prompt and --extract-only are mutually exclusive')
-  }
-
   const isYoutubeUrl = /youtube\.com|youtu\.be/i.test(url)
   const firecrawlExplicitlySet = normalizedArgv.some(
     (arg) => arg === '--firecrawl' || arg.startsWith('--firecrawl=')
   )
-  const firecrawlMode = (() => {
-    const parsed = parseFirecrawlMode(program.opts().firecrawl as string)
-    if (extractOnly && !isYoutubeUrl && !firecrawlExplicitlySet) {
-      return 'always'
-    }
-    return parsed
-  })()
+  const requestedFirecrawlMode = parseFirecrawlMode(program.opts().firecrawl as string)
+
+  if (printPrompt && extractOnly) {
+    throw new Error('--prompt and --extract-only are mutually exclusive')
+  }
 
   const model =
     (typeof program.opts().model === 'string' ? (program.opts().model as string) : null) ??
     env.OPENAI_MODEL ??
-    'gpt-5.2'
+    'gpt-5.2-mini'
 
   const apiKey = typeof env.OPENAI_API_KEY === 'string' ? env.OPENAI_API_KEY : null
   const apifyToken = typeof env.APIFY_API_TOKEN === 'string' ? env.APIFY_API_TOKEN : null
@@ -327,6 +395,15 @@ export async function runCli(
 
   const firecrawlApiKey = firecrawlKey && firecrawlKey.trim().length > 0 ? firecrawlKey : null
   const firecrawlConfigured = firecrawlApiKey !== null
+
+  const verboseColor = supportsColor(stderr, env)
+
+  const firecrawlMode = (() => {
+    if (extractOnly && !isYoutubeUrl && !firecrawlExplicitlySet && firecrawlConfigured) {
+      return 'always'
+    }
+    return requestedFirecrawlMode
+  })()
   if (firecrawlMode === 'always' && !firecrawlConfigured) {
     throw new Error('--firecrawl always requires FIRECRAWL_API_KEY')
   }
@@ -336,12 +413,14 @@ export async function runCli(
     verbose,
     `config url=${url} timeoutMs=${timeoutMs} youtube=${youtubeMode} firecrawl=${firecrawlMode} length=${
       lengthArg.kind === 'preset' ? lengthArg.preset : `${lengthArg.maxCharacters} chars`
-    } json=${json} extractOnly=${extractOnly} prompt=${printPrompt}`
+    } json=${json} extractOnly=${extractOnly} prompt=${printPrompt}`,
+    verboseColor
   )
   writeVerbose(
     stderr,
     verbose,
-    `env openaiKey=${Boolean(apiKey)} apifyToken=${Boolean(apifyToken)} firecrawlKey=${firecrawlConfigured} model=${model}`
+    `env openaiKey=${Boolean(apiKey)} apifyToken=${Boolean(apifyToken)} firecrawlKey=${firecrawlConfigured} model=${model}`,
+    verboseColor
   )
 
   const scrapeWithFirecrawl =
@@ -355,7 +434,7 @@ export async function runCli(
     fetch,
   })
 
-  writeVerbose(stderr, verbose, 'extract start')
+  writeVerbose(stderr, verbose, 'extract start', verboseColor)
   const extracted = await client.fetchLinkContent(url, {
     timeoutMs,
     youtubeTranscript: youtubeMode,
@@ -368,21 +447,24 @@ export async function runCli(
       extracted.siteName
     )} title=${formatOptionalString(extracted.title)} transcriptSource=${formatOptionalString(
       extracted.transcriptSource
-    )}`
+    )}`,
+    verboseColor
   )
   writeVerbose(
     stderr,
     verbose,
     `extract stats characters=${extracted.totalCharacters} words=${extracted.wordCount} transcriptCharacters=${formatOptionalNumber(
       extracted.transcriptCharacters
-    )} transcriptLines=${formatOptionalNumber(extracted.transcriptLines)}`
+    )} transcriptLines=${formatOptionalNumber(extracted.transcriptLines)}`,
+    verboseColor
   )
   writeVerbose(
     stderr,
     verbose,
     `extract firecrawl attempted=${extracted.diagnostics.firecrawl.attempted} used=${extracted.diagnostics.firecrawl.used} notes=${formatOptionalString(
       extracted.diagnostics.firecrawl.notes ?? null
-    )}`
+    )}`,
+    verboseColor
   )
   writeVerbose(
     stderr,
@@ -393,7 +475,8 @@ export async function runCli(
       extracted.diagnostics.transcript.attemptedProviders.length > 0
         ? extracted.diagnostics.transcript.attemptedProviders.join(',')
         : 'none'
-    } notes=${formatOptionalString(extracted.diagnostics.transcript.notes ?? null)}`
+    } notes=${formatOptionalString(extracted.diagnostics.transcript.notes ?? null)}`,
+    verboseColor
   )
 
   const isYouTube = extracted.siteName === 'YouTube'
@@ -447,7 +530,8 @@ export async function runCli(
     writeVerbose(
       stderr,
       verbose,
-      printPrompt ? 'mode prompt-only' : 'mode prompt-only (no OPENAI_API_KEY)'
+      printPrompt ? 'mode prompt-only' : 'mode prompt-only (no OPENAI_API_KEY)',
+      verboseColor
     )
     if (!apiKey && !json) {
       stderr.write('Missing OPENAI_API_KEY; printing prompt instead.\n')
@@ -483,7 +567,7 @@ export async function runCli(
     return
   }
 
-  writeVerbose(stderr, verbose, 'mode summarize (OpenAI)')
+  writeVerbose(stderr, verbose, 'mode summarize (OpenAI)', verboseColor)
   const maxCompletionTokens =
     lengthArg.kind === 'preset'
       ? SUMMARY_LENGTH_TO_TOKENS[lengthArg.preset]
@@ -495,7 +579,7 @@ export async function runCli(
 
   let summary: string
   if (!isLargeContent) {
-    writeVerbose(stderr, verbose, 'summarize strategy=single')
+    writeVerbose(stderr, verbose, 'summarize strategy=single', verboseColor)
     summary = await summarizeWithOpenAI({
       apiKey,
       model,
@@ -512,11 +596,21 @@ export async function runCli(
     stderr.write(
       `Large input (${extracted.content.length} chars); summarizing in ${chunks.length} chunks.\n`
     )
-    writeVerbose(stderr, verbose, `summarize strategy=map-reduce chunks=${chunks.length}`)
+    writeVerbose(
+      stderr,
+      verbose,
+      `summarize strategy=map-reduce chunks=${chunks.length}`,
+      verboseColor
+    )
 
     const chunkNotes: string[] = []
     for (let i = 0; i < chunks.length; i += 1) {
-      writeVerbose(stderr, verbose, `summarize chunk ${i + 1}/${chunks.length} notes start`)
+      writeVerbose(
+        stderr,
+        verbose,
+        `summarize chunk ${i + 1}/${chunks.length} notes start`,
+        verboseColor
+      )
       const chunkPrompt = buildChunkNotesPrompt({
         content: chunks[i] ?? '',
       })
@@ -542,7 +636,7 @@ export async function runCli(
       chunkNotes.push(notes.trim())
     }
 
-    writeVerbose(stderr, verbose, 'summarize merge chunk notes')
+    writeVerbose(stderr, verbose, 'summarize merge chunk notes', verboseColor)
     const mergedContent = `Chunk notes (generated from the full input):\n\n${chunkNotes
       .filter((value) => value.length > 0)
       .join('\n\n')}`

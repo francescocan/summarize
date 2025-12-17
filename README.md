@@ -75,7 +75,7 @@ summarize "https://example.com" --prompt
 Change model, length, YouTube mode, and timeout:
 
 ```bash
-summarize "https://example.com" --length 20k --timeout 30s --model gpt-5.2
+summarize "https://example.com" --length 20k --timeout 30s --model gpt-5.2-mini
 summarize "https://www.youtube.com/watch?v=I845O57ZSy4&t=11s" --youtube auto --length 8k
 ```
 
@@ -97,8 +97,8 @@ summarize "https://example.com" --json
   - `always`: try Firecrawl first (still falls back to HTML when Firecrawl is unavailable/empty)
 - `--length short|medium|long|xl|xxl|<chars>`
   - Presets influence formatting; `<chars>` (e.g. `20k`, `1500`) adds a soft “target length” instruction (no hard truncation).
-- `--timeout <duration>`: `30` (seconds), `30s`, `2m`, `5000ms`
-- `--model <model>`: default `gpt-5.2` (or `OPENAI_MODEL`)
+- `--timeout <duration>`: `30` (seconds), `30s`, `2m`, `5000ms` (default: `2m`)
+- `--model <model>`: default `gpt-5.2-mini` (or `OPENAI_MODEL`)
 - `--prompt`: print prompt and exit (never calls OpenAI)
 - `--extract-only`: print extracted content and exit (never calls OpenAI)
 - `--json`: emit a single JSON object instead of plain text
@@ -111,7 +111,7 @@ summarize "https://example.com" --json
 If `OPENAI_API_KEY` is **not** set, the CLI prints the prompt instead of calling an LLM.
 
 - `OPENAI_API_KEY` (required to call OpenAI)
-- `OPENAI_MODEL` (optional, default: `gpt-5.2`)
+- `OPENAI_MODEL` (optional, default: `gpt-5.2-mini`)
 
 ### Apify (optional YouTube fallback)
 
