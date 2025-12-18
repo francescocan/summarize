@@ -1,6 +1,7 @@
 import { Command, CommanderError } from 'commander'
 import { createLiveRenderer, render as renderMarkdownAnsi } from 'markdansi'
 import type { ModelMessage } from 'ai'
+import fs from 'node:fs/promises'
 import { loadSummarizeConfig } from './config.js'
 import {
   buildAssetPromptMessages,
@@ -420,6 +421,19 @@ function formatElapsedMs(ms: number): string {
   const minutes = Math.floor(ms / 60_000)
   const seconds = Math.floor((ms % 60_000) / 1000)
   return `${minutes}m${seconds.toString().padStart(2, '0')}s`
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return 'unknown'
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB'] as const
+  let value = bytes / 1024
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`
 }
 
 function sumNumbersOrNull(values: Array<number | null>): number | null {
@@ -992,6 +1006,16 @@ export async function runCli(
   }
 
   if (inputTarget.kind === 'file') {
+    let sizeLabel: string | null = null
+    try {
+      const stat = await fs.stat(inputTarget.filePath)
+      if (stat.isFile()) {
+        sizeLabel = formatBytes(stat.size)
+      }
+    } catch {
+      // Ignore size preflight; loadLocalAsset will throw a user-friendly error if needed.
+    }
+
     const stopOscProgress = startOscProgress({
       label: 'Loading file',
       indeterminate: true,
@@ -1000,22 +1024,26 @@ export async function runCli(
       write: (data) => stderr.write(data),
     })
     const spinner = startSpinner({
-      text: 'Loading file…',
+      text: sizeLabel ? `Loading file (${sizeLabel})…` : 'Loading file…',
       enabled: progressEnabled,
       stream: stderr,
     })
-    try {
-      const loaded = await loadLocalAsset({ filePath: inputTarget.filePath })
-      await summarizeAsset({
-        sourceKind: 'file',
-        sourceLabel: loaded.sourceLabel,
-        attachment: loaded.attachment,
-      })
-      return
-    } finally {
-      spinner.stop()
-      stopOscProgress()
-    }
+
+    const loaded = await (async () => {
+      try {
+        return await loadLocalAsset({ filePath: inputTarget.filePath })
+      } finally {
+        spinner.stopAndClear()
+        stopOscProgress()
+      }
+    })()
+
+    await summarizeAsset({
+      sourceKind: 'file',
+      sourceLabel: loaded.sourceLabel,
+      attachment: loaded.attachment,
+    })
+    return
   }
 
   if (url && !isYoutubeUrl) {
@@ -1033,23 +1061,28 @@ export async function runCli(
         enabled: progressEnabled,
         stream: stderr,
       })
-      try {
-        const loaded = await loadRemoteAsset({ url, fetchImpl: trackedFetch, timeoutMs })
+
+      const loaded = await (async () => {
+        try {
+          return await loadRemoteAsset({ url, fetchImpl: trackedFetch, timeoutMs })
+        } catch (error) {
+          if (error instanceof Error && /HTML/i.test(error.message)) {
+            return null
+          }
+          throw error
+        } finally {
+          spinner.stopAndClear()
+          stopOscProgress()
+        }
+      })()
+
+      if (loaded) {
         await summarizeAsset({
           sourceKind: 'asset-url',
           sourceLabel: loaded.sourceLabel,
           attachment: loaded.attachment,
         })
         return
-      } catch (error) {
-        if (error instanceof Error && /HTML/i.test(error.message)) {
-          // Fall back to website pipeline.
-        } else {
-          throw error
-        }
-      } finally {
-        spinner.stop()
-        stopOscProgress()
       }
     }
   }
@@ -1177,7 +1210,7 @@ export async function runCli(
         format: markdownRequested ? 'markdown' : 'text',
       })
     } finally {
-      spinner.stop()
+      spinner.stopAndClear()
       stopOscProgress()
     }
   })()

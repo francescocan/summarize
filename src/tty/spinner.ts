@@ -8,13 +8,25 @@ export function startSpinner({
   text: string
   enabled: boolean
   stream: NodeJS.WritableStream
-}): { stop: () => void; setText: (next: string) => void } {
+}): { stop: () => void; clear: () => void; stopAndClear: () => void; setText: (next: string) => void } {
   if (!enabled) {
-    return { stop: () => {}, setText: () => {} }
+    return { stop: () => {}, clear: () => {}, stopAndClear: () => {}, setText: () => {} }
+  }
+
+  const clear = () => {
+    // Keep output clean in scrollback.
+    // `ora` clears the line, but we also hard-clear as a fallback.
+    spinner.clear()
+    stream.write('\r\u001b[2K')
   }
 
   const stop = () => {
     if (spinner.isSpinning) spinner.stop()
+  }
+
+  const stopAndClear = () => {
+    stop()
+    clear()
   }
 
   const setText = (next: string) => {
@@ -30,5 +42,5 @@ export function startSpinner({
     discardStdin: true,
   }).start()
 
-  return { stop, setText }
+  return { stop, clear, stopAndClear, setText }
 }
