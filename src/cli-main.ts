@@ -23,7 +23,49 @@ export function handlePipeErrors(stream: NodeJS.WritableStream, exit: (code: num
 
 function stripAnsi(input: string): string {
   // Minimal, good-enough ANSI stripper for error output. We only use this for non-verbose errors.
-  return input.replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\u001b\][^\u0007]*(\u0007|\u001b\\)/g, '')
+  let out = ''
+
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i]
+    if (ch !== '\u001b') {
+      out += ch
+      continue
+    }
+
+    const next = input[i + 1]
+    if (next === '[') {
+      // CSI: ESC [ ... <final>
+      i += 2
+      while (i < input.length) {
+        const c = input[i]
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) break
+        i += 1
+      }
+      continue
+    }
+
+    if (next === ']') {
+      // OSC: ESC ] ... (BEL | ESC \)
+      i += 2
+      while (i < input.length) {
+        const c = input[i]
+        if (c === '\u0007') break
+        if (c === '\u001b' && input[i + 1] === '\\') {
+          i += 1
+          break
+        }
+        i += 1
+      }
+      continue
+    }
+
+    // Unknown ESC sequence (or stray ESC): drop the next character too to avoid leaving artifacts.
+    if (typeof next === 'string') {
+      i += 1
+    }
+  }
+
+  return out
 }
 
 export async function runCliMain({
@@ -56,8 +98,7 @@ export async function runCliMain({
       return
     }
 
-    const message =
-      error instanceof Error ? error.message : error ? String(error) : 'Unknown error'
+    const message = error instanceof Error ? error.message : error ? String(error) : 'Unknown error'
     stderr.write(`${stripAnsi(message)}\n`)
     setExitCode(1)
   }

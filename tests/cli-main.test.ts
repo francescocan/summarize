@@ -43,6 +43,50 @@ describe('cli main wiring', async () => {
     expect(stderrText.trim()).toBe('boom')
   })
 
+  it('strips ANSI control sequences from non-verbose errors', async () => {
+    runCliMock
+      .mockReset()
+      .mockRejectedValue(
+        new Error(
+          [
+            '\u001b[31mred\u001b[0m',
+            '\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007',
+            '\u001b]1337;SetUserVar=foo=YmFy\u001b\\ok\u001b\\',
+            '\u001bXunknown',
+          ].join(' ')
+        )
+      )
+
+    let stderrText = ''
+    const stderr = new Writable({
+      write(chunk, _encoding, callback) {
+        stderrText += chunk.toString()
+        callback()
+      },
+    })
+    ;(stderr as unknown as { isTTY?: boolean }).isTTY = true
+
+    let exitCode: number | null = null
+    await runCliMain({
+      argv: [],
+      env: {},
+      fetch: globalThis.fetch.bind(globalThis),
+      stdout: new Writable({
+        write(_c, _e, cb) {
+          cb()
+        },
+      }),
+      stderr,
+      exit: () => {},
+      setExitCode: (code) => {
+        exitCode = code
+      },
+    })
+
+    expect(exitCode).toBe(1)
+    expect(stderrText.trim()).toBe('red link ok unknown')
+  })
+
   it('exits with 0 on EPIPE', () => {
     const stream = new EventEmitter() as unknown as NodeJS.WritableStream
     let exited: number | null = null

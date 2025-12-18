@@ -21,12 +21,46 @@ function collectStream({ isTTY }: { isTTY: boolean }) {
 
 function stripOsc(text: string): string {
   // OSC ... ST
-  return text.replace(/\u001b\][^\u001b]*\u001b\\/g, '')
+  let out = ''
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+    if (ch !== '\u001b' || text[i + 1] !== ']') {
+      out += ch
+      continue
+    }
+
+    i += 2
+    while (i < text.length) {
+      const c = text[i]
+      if (c === '\u0007') break
+      if (c === '\u001b' && text[i + 1] === '\\') {
+        i += 1
+        break
+      }
+      i += 1
+    }
+  }
+  return out
 }
 
 function stripCsi(text: string): string {
   // Remove CSI sequences we don't simulate here (cursor show/hide, SGR, etc).
-  return text.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '')
+  let out = ''
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+    if (ch !== '\u001b' || text[i + 1] !== '[') {
+      out += ch
+      continue
+    }
+
+    i += 2
+    while (i < text.length) {
+      const c = text[i]
+      if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) break
+      i += 1
+    }
+  }
+  return out
 }
 
 function applyCarriageReturnAndClearLine(text: string): string {
