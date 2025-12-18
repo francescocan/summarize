@@ -90,7 +90,7 @@ describe('cli --json', () => {
       stderr,
     })
 
-    expect(stderrText).toBe('')
+    expect(stderrText).toContain('Finished in')
     const parsed = JSON.parse(stdoutText) as {
       env: { hasXaiKey: boolean; hasOpenAIKey: boolean; hasGoogleKey: boolean }
       llm: unknown

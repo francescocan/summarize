@@ -107,8 +107,17 @@ summarize "https://example.com" --json
     - `google/gemini-2.0-flash`
 - `--extract-only`: print extracted content and exit (never calls an LLM)
 - `--json`: emit a single JSON object instead of plain text
+- `--stream auto|on|off`
+  - `auto` (default): stream only when stdout is a TTY (disabled in `--json` mode)
+  - In `--render md` mode, streaming output is buffered and rendered at the end.
+- `--render auto|md|plain`
+  - `auto` (default): render Markdown only when stdout is a TTY
+  - `md`: render Markdown to ANSI using `markdansi` (TTY only)
+  - `plain`: no Markdown rendering
 - `--verbose`: print detailed progress + extraction diagnostics to stderr
 - `--cost`: print token usage + estimated costs to stderr (also included in `--json` output when enabled)
+
+Note: a `Finished in ...` line is always printed to stderr (elapsed time + tokens + service counts + estimated cost when available).
 
 ## Required services & API keys
 
@@ -130,7 +139,7 @@ By default the CLI uses `xai/grok-4-fast-non-reasoning`, so you’ll want `XAI_A
 Provide prices via either:
 
 - `SUMMARIZE_PRICING_JSON` (JSON string), or
-- `~/.config/summarize/config.json`:
+- `~/.summarize/config.json` (falls back to `~/.config/summarize/config.json`):
 
 ```json
 {

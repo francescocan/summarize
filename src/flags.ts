@@ -3,6 +3,8 @@ import type { SummaryLength } from './shared/contracts.js'
 export type YoutubeMode = 'auto' | 'web' | 'apify'
 export type FirecrawlMode = 'off' | 'auto' | 'always'
 export type MarkdownMode = 'off' | 'auto' | 'llm'
+export type StreamMode = 'auto' | 'on' | 'off'
+export type RenderMode = 'auto' | 'md' | 'plain'
 
 export type LengthArg =
   | { kind: 'preset'; preset: SummaryLength }
@@ -29,6 +31,19 @@ export function parseMarkdownMode(raw: string): MarkdownMode {
   const normalized = raw.trim().toLowerCase()
   if (normalized === 'off' || normalized === 'auto' || normalized === 'llm') return normalized
   throw new Error(`Unsupported --markdown: ${raw}`)
+}
+
+export function parseStreamMode(raw: string): StreamMode {
+  const normalized = raw.trim().toLowerCase()
+  if (normalized === 'auto' || normalized === 'on' || normalized === 'off') return normalized
+  throw new Error(`Unsupported --stream: ${raw}`)
+}
+
+export function parseRenderMode(raw: string): RenderMode {
+  const normalized = raw.trim().toLowerCase()
+  if (normalized === 'auto' || normalized === 'plain') return normalized as RenderMode
+  if (normalized === 'md' || normalized === 'markdown') return 'md'
+  throw new Error(`Unsupported --render: ${raw}`)
 }
 
 export function parseDurationMs(raw: string): number {

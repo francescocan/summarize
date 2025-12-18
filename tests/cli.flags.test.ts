@@ -5,6 +5,8 @@ import {
   parseFirecrawlMode,
   parseLengthArg,
   parseMarkdownMode,
+  parseRenderMode,
+  parseStreamMode,
   parseYoutubeMode,
 } from '../src/flags.js'
 
@@ -37,6 +39,21 @@ describe('cli flag parsing', () => {
     expect(parseMarkdownMode('auto')).toBe('auto')
     expect(parseMarkdownMode('llm')).toBe('llm')
     expect(() => parseMarkdownMode('nope')).toThrow(/Unsupported --markdown/)
+  })
+
+  it('parses --stream', () => {
+    expect(parseStreamMode('auto')).toBe('auto')
+    expect(parseStreamMode('on')).toBe('on')
+    expect(parseStreamMode('off')).toBe('off')
+    expect(() => parseStreamMode('nope')).toThrow(/Unsupported --stream/)
+  })
+
+  it('parses --render', () => {
+    expect(parseRenderMode('auto')).toBe('auto')
+    expect(parseRenderMode('plain')).toBe('plain')
+    expect(parseRenderMode('md')).toBe('md')
+    expect(parseRenderMode('markdown')).toBe('md')
+    expect(() => parseRenderMode('nope')).toThrow(/Unsupported --render/)
   })
 
   it('parses --length as preset or character count', () => {

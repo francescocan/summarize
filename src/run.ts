@@ -1,4 +1,5 @@
 import { Command, CommanderError } from 'commander'
+import { render as renderMarkdownAnsi } from 'markdansi'
 import { loadSummarizeConfig } from './config.js'
 import { createLinkPreviewClient } from './content/index.js'
 import { buildRunCostReport, parsePricingJson } from './costs.js'
@@ -9,9 +10,11 @@ import {
   parseFirecrawlMode,
   parseLengthArg,
   parseMarkdownMode,
+  parseRenderMode,
+  parseStreamMode,
   parseYoutubeMode,
 } from './flags.js'
-import { generateTextWithModelId } from './llm/generate-text.js'
+import { generateTextWithModelId, streamTextWithModelId } from './llm/generate-text.js'
 import { createHtmlToMarkdownConverter } from './llm/html-to-markdown.js'
 import { normalizeGatewayStyleModelId, parseGatewayStyleModelId } from './llm/model-id.js'
 import {
@@ -92,7 +95,7 @@ function buildProgram() {
     )
     .option(
       '--config <path>',
-      'Optional config file path (JSON). Default: ~/.config/summarize/config.json'
+      'Optional config file path (JSON). Default: ~/.summarize/config.json (falls back to ~/.config/summarize/config.json)'
     )
     .option(
       '--model <model>',
@@ -106,6 +109,16 @@ function buildProgram() {
     )
     .option('--extract-only', 'Print extracted content and exit', false)
     .option('--json', 'Output structured JSON', false)
+    .option(
+      '--stream <mode>',
+      'Stream LLM output: auto (TTY only), on, off. Note: streaming is disabled in --json mode.',
+      'auto'
+    )
+    .option(
+      '--render <mode>',
+      'Render Markdown output: auto (TTY only), md, plain. Note: in stream mode, md rendering happens at the end (buffered).',
+      'auto'
+    )
     .option('--verbose', 'Print detailed progress info to stderr', false)
     .option('--cost', 'Print token usage and estimated costs to stderr', false)
     .allowExcessArguments(false)
@@ -125,6 +138,18 @@ function supportsColor(
   const term = env.TERM?.toLowerCase()
   if (!term || term === 'dumb') return false
   return true
+}
+
+function terminalWidth(stream: NodeJS.WritableStream, env: Record<string, string | undefined>): number {
+  const cols = (stream as unknown as { columns?: unknown }).columns
+  if (typeof cols === 'number' && Number.isFinite(cols) && cols > 0) {
+    return Math.floor(cols)
+  }
+  const fromEnv = env.COLUMNS ? Number(env.COLUMNS) : NaN
+  if (Number.isFinite(fromEnv) && fromEnv > 0) {
+    return Math.floor(fromEnv)
+  }
+  return 80
 }
 
 function ansi(code: string, input: string, enabled: boolean): string {
@@ -159,6 +184,7 @@ ${heading('Env Vars')}
   GOOGLE_GENERATIVE_AI_API_KEY optional (required for google/... models)
   SUMMARIZE_MODEL       optional (overrides default model selection)
   SUMMARIZE_CONFIG      optional (path to config.json)
+  SUMMARIZE_HOME_DIR    optional (default config dir; uses <dir>/config.json)
   FIRECRAWL_API_KEY     optional website extraction fallback (Markdown)
   APIFY_API_TOKEN       optional YouTube transcript fallback
 `
@@ -270,6 +296,70 @@ function formatOptionalNumber(value: number | null | undefined): string {
   return 'none'
 }
 
+function formatElapsedMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return 'unknown'
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  const minutes = Math.floor(ms / 60_000)
+  const seconds = Math.floor((ms % 60_000) / 1000)
+  return `${minutes}m${seconds.toString().padStart(2, '0')}s`
+}
+
+function sumNumbersOrNull(values: Array<number | null>): number | null {
+  let sum = 0
+  let any = false
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      sum += value
+      any = true
+    }
+  }
+  return any ? sum : null
+}
+
+function writeFinishLine({
+  stderr,
+  elapsedMs,
+  model,
+  strategy,
+  chunkCount,
+  report,
+}: {
+  stderr: NodeJS.WritableStream
+  elapsedMs: number
+  model: string
+  strategy: 'single' | 'map-reduce' | 'none'
+  chunkCount: number | null
+  report: ReturnType<typeof buildRunCostReport>
+}): void {
+  const fmtUsd = (value: number | null) =>
+    typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(4)}` : 'unknown'
+  const promptTokens = sumNumbersOrNull(report.llm.map((row) => row.promptTokens))
+  const completionTokens = sumNumbersOrNull(report.llm.map((row) => row.completionTokens))
+  const totalTokens = sumNumbersOrNull(report.llm.map((row) => row.totalTokens))
+
+  const tokPart =
+    promptTokens !== null || completionTokens !== null || totalTokens !== null
+      ? `tok(i/o/t)=${promptTokens?.toLocaleString() ?? 'unknown'}/${completionTokens?.toLocaleString() ?? 'unknown'}/${totalTokens?.toLocaleString() ?? 'unknown'}`
+      : 'tok(i/o/t)=unknown'
+
+  const parts: string[] = [
+    model,
+    tokPart,
+    `firecrawl=${report.services.firecrawl.requests}`,
+    `apify=${report.services.apify.requests}`,
+    `cost=${fmtUsd(report.totalEstimatedUsd)}`,
+  ]
+
+  if (strategy !== 'none') {
+    parts.push(`strategy=${strategy}`)
+  }
+  if (typeof chunkCount === 'number' && Number.isFinite(chunkCount)) {
+    parts.push(`chunks=${chunkCount}`)
+  }
+
+  stderr.write(`Finished in ${formatElapsedMs(elapsedMs)} (${parts.join(' | ')})\n`)
+}
+
 function buildChunkNotesPrompt({ content }: { content: string }): string {
   return `Return 10 bullet points summarizing the content below (Markdown).
 
@@ -329,11 +419,15 @@ export async function runCli(
     return normalized
   })()
 
+  const runStartedAtMs = Date.now()
+
   const youtubeMode = parseYoutubeMode(program.opts().youtube as string)
   const lengthArg = parseLengthArg(program.opts().length as string)
   const timeoutMs = parseDurationMs(program.opts().timeout as string)
   const extractOnly = Boolean(program.opts().extractOnly)
   const json = Boolean(program.opts().json)
+  const streamMode = parseStreamMode(program.opts().stream as string)
+  const renderMode = parseRenderMode(program.opts().render as string)
   const verbose = Boolean(program.opts().verbose)
   const cost = Boolean(program.opts().cost)
   const markdownMode = parseMarkdownMode(program.opts().markdown as string)
@@ -430,6 +524,15 @@ export async function runCli(
   const parsedModelForLlm = parseGatewayStyleModelId(model)
 
   const verboseColor = supportsColor(stderr, env)
+  const effectiveRenderMode = (() => {
+    if (renderMode !== 'auto') return renderMode
+    return isRichTty(stdout) ? 'md' : 'plain'
+  })()
+  const effectiveStreamMode = (() => {
+    if (streamMode !== 'auto') return streamMode
+    return isRichTty(stdout) ? 'on' : 'off'
+  })()
+  const streamingEnabled = effectiveStreamMode === 'on' && !json && !extractOnly
   const writeCostReport = (report: ReturnType<typeof buildRunCostReport>) => {
     const fmtUsd = (value: number | null) =>
       typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(4)}` : 'unknown'
@@ -498,7 +601,7 @@ export async function runCli(
     verbose,
     `config url=${url} timeoutMs=${timeoutMs} youtube=${youtubeMode} firecrawl=${firecrawlMode} length=${
       lengthArg.kind === 'preset' ? lengthArg.preset : `${lengthArg.maxCharacters} chars`
-    } json=${json} extractOnly=${extractOnly} markdown=${effectiveMarkdownMode} model=${model} raw=${raw}`,
+    } json=${json} extractOnly=${extractOnly} markdown=${effectiveMarkdownMode} model=${model} raw=${raw} stream=${effectiveStreamMode} render=${effectiveRenderMode}`,
     verboseColor
   )
   writeVerbose(
@@ -624,6 +727,7 @@ export async function runCli(
         cost || verbose
           ? buildRunCostReport({ llmCalls, firecrawlRequests, apifyRequests, pricing })
           : null
+      const finishReport = buildRunCostReport({ llmCalls, firecrawlRequests, apifyRequests, pricing })
       const payload: JsonOutput = {
         input: {
           url,
@@ -654,6 +758,14 @@ export async function runCli(
         writeCostReport(costReport)
       }
       stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
+      writeFinishLine({
+        stderr,
+        elapsedMs: Date.now() - runStartedAtMs,
+        model,
+        strategy: 'none',
+        chunkCount: null,
+        report: finishReport,
+      })
       return
     }
 
@@ -661,6 +773,14 @@ export async function runCli(
       writeCostReport(buildRunCostReport({ llmCalls, firecrawlRequests, apifyRequests, pricing }))
     }
     stdout.write(`${extracted.content}\n`)
+    writeFinishLine({
+      stderr,
+      elapsedMs: Date.now() - runStartedAtMs,
+      model,
+      strategy: 'none',
+      chunkCount: null,
+      report: buildRunCostReport({ llmCalls, firecrawlRequests, apifyRequests, pricing }),
+    })
     return
   }
 
@@ -703,25 +823,68 @@ export async function runCli(
   const isLargeContent = extracted.content.length >= MAP_REDUCE_TRIGGER_CHARACTERS
   let strategy: 'single' | 'map-reduce' = 'single'
   let chunkCount = 1
+  const shouldBufferSummaryForRender =
+    streamingEnabled && effectiveRenderMode === 'md' && isRichTty(stdout)
+  const shouldStreamSummaryToStdout = streamingEnabled && !shouldBufferSummaryForRender
+  let summaryAlreadyPrinted = false
 
   let summary: string
   if (!isLargeContent) {
     writeVerbose(stderr, verbose, 'summarize strategy=single', verboseColor)
-    const result = await summarizeWithModelId({
-      modelId: parsedModel.canonical,
-      prompt,
-      maxOutputTokens: maxCompletionTokens,
-      timeoutMs,
-      fetchImpl: trackedFetch,
-      apiKeys: apiKeysForLlm,
-    })
-    llmCalls.push({
-      provider: result.provider,
-      model: result.canonicalModelId,
-      usage: result.usage,
-      purpose: 'summary',
-    })
-    summary = result.text
+    if (streamingEnabled) {
+      writeVerbose(
+        stderr,
+        verbose,
+        `summarize stream=on buffered=${shouldBufferSummaryForRender}`,
+        verboseColor
+      )
+      const streamResult = await streamTextWithModelId({
+        modelId: parsedModel.canonical,
+        apiKeys: apiKeysForLlm,
+        prompt,
+        temperature: 0,
+        maxOutputTokens: maxCompletionTokens,
+        timeoutMs,
+        fetchImpl: trackedFetch,
+      })
+      let streamed = ''
+      for await (const delta of streamResult.textStream) {
+        streamed += delta
+        if (shouldStreamSummaryToStdout) {
+          stdout.write(delta)
+        }
+      }
+      const usage = await streamResult.usage
+      llmCalls.push({
+        provider: streamResult.provider,
+        model: streamResult.canonicalModelId,
+        usage,
+        purpose: 'summary',
+      })
+      summary = streamed
+      if (shouldStreamSummaryToStdout) {
+        if (!streamed.endsWith('\n')) {
+          stdout.write('\n')
+        }
+        summaryAlreadyPrinted = true
+      }
+    } else {
+      const result = await summarizeWithModelId({
+        modelId: parsedModel.canonical,
+        prompt,
+        maxOutputTokens: maxCompletionTokens,
+        timeoutMs,
+        fetchImpl: trackedFetch,
+        apiKeys: apiKeysForLlm,
+      })
+      llmCalls.push({
+        provider: result.provider,
+        model: result.canonicalModelId,
+        usage: result.usage,
+        purpose: 'summary',
+      })
+      summary = result.text
+    }
   } else {
     strategy = 'map-reduce'
     const chunks = splitTextIntoChunks(extracted.content, MAP_REDUCE_CHUNK_CHARACTERS)
@@ -789,21 +952,60 @@ export async function runCli(
       shares: [],
     })
 
-    const mergedResult = await summarizeWithModelId({
-      modelId: parsedModel.canonical,
-      prompt: mergedPrompt,
-      maxOutputTokens: maxCompletionTokens,
-      timeoutMs,
-      fetchImpl: trackedFetch,
-      apiKeys: apiKeysForLlm,
-    })
-    llmCalls.push({
-      provider: mergedResult.provider,
-      model: mergedResult.canonicalModelId,
-      usage: mergedResult.usage,
-      purpose: 'summary',
-    })
-    summary = mergedResult.text
+    if (streamingEnabled) {
+      writeVerbose(
+        stderr,
+        verbose,
+        `summarize stream=on buffered=${shouldBufferSummaryForRender}`,
+        verboseColor
+      )
+      const streamResult = await streamTextWithModelId({
+        modelId: parsedModel.canonical,
+        apiKeys: apiKeysForLlm,
+        prompt: mergedPrompt,
+        temperature: 0,
+        maxOutputTokens: maxCompletionTokens,
+        timeoutMs,
+        fetchImpl: trackedFetch,
+      })
+      let streamed = ''
+      for await (const delta of streamResult.textStream) {
+        streamed += delta
+        if (shouldStreamSummaryToStdout) {
+          stdout.write(delta)
+        }
+      }
+      const usage = await streamResult.usage
+      llmCalls.push({
+        provider: streamResult.provider,
+        model: streamResult.canonicalModelId,
+        usage,
+        purpose: 'summary',
+      })
+      summary = streamed
+      if (shouldStreamSummaryToStdout) {
+        if (!streamed.endsWith('\n')) {
+          stdout.write('\n')
+        }
+        summaryAlreadyPrinted = true
+      }
+    } else {
+      const mergedResult = await summarizeWithModelId({
+        modelId: parsedModel.canonical,
+        prompt: mergedPrompt,
+        maxOutputTokens: maxCompletionTokens,
+        timeoutMs,
+        fetchImpl: trackedFetch,
+        apiKeys: apiKeysForLlm,
+      })
+      llmCalls.push({
+        provider: mergedResult.provider,
+        model: mergedResult.canonicalModelId,
+        usage: mergedResult.usage,
+        purpose: 'summary',
+      })
+      summary = mergedResult.text
+    }
   }
 
   summary = summary.trim()
@@ -816,6 +1018,7 @@ export async function runCli(
       cost || verbose
         ? buildRunCostReport({ llmCalls, firecrawlRequests, apifyRequests, pricing })
         : null
+    const finishReport = buildRunCostReport({ llmCalls, firecrawlRequests, apifyRequests, pricing })
     const payload: JsonOutput = {
       input: {
         url,
@@ -853,11 +1056,42 @@ export async function runCli(
       writeCostReport(costReport)
     }
     stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
+    writeFinishLine({
+      stderr,
+      elapsedMs: Date.now() - runStartedAtMs,
+      model: parsedModel.canonical,
+      strategy,
+      chunkCount,
+      report: finishReport,
+    })
     return
+  }
+
+  if (!summaryAlreadyPrinted) {
+    const rendered =
+      effectiveRenderMode === 'md' && isRichTty(stdout)
+        ? renderMarkdownAnsi(summary, {
+            width: terminalWidth(stdout, env),
+            wrap: true,
+            color: supportsColor(stdout, env),
+          })
+        : summary
+
+    stdout.write(rendered)
+    if (!rendered.endsWith('\n')) {
+      stdout.write('\n')
+    }
   }
 
   if (cost || verbose) {
     writeCostReport(buildRunCostReport({ llmCalls, firecrawlRequests, apifyRequests, pricing }))
   }
-  stdout.write(`${summary}\n`)
+  writeFinishLine({
+    stderr,
+    elapsedMs: Date.now() - runStartedAtMs,
+    model: parsedModel.canonical,
+    strategy,
+    chunkCount,
+    report: buildRunCostReport({ llmCalls, firecrawlRequests, apifyRequests, pricing }),
+  })
 }

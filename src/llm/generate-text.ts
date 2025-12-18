@@ -138,3 +138,105 @@ export async function generateTextWithModelId({
     clearTimeout(timeout)
   }
 }
+
+export async function streamTextWithModelId({
+  modelId,
+  apiKeys,
+  system,
+  prompt,
+  maxOutputTokens,
+  timeoutMs,
+  temperature,
+  fetchImpl,
+}: {
+  modelId: string
+  apiKeys: LlmApiKeys
+  system?: string
+  prompt: string
+  maxOutputTokens: number
+  timeoutMs: number
+  temperature: number
+  fetchImpl: typeof fetch
+}): Promise<{
+  textStream: AsyncIterable<string>
+  canonicalModelId: string
+  provider: 'xai' | 'openai' | 'google'
+  usage: Promise<LlmTokenUsage | null>
+}> {
+  const parsed = parseGatewayStyleModelId(modelId)
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const { streamText } = await import('ai')
+
+    if (parsed.provider === 'xai') {
+      const apiKey = apiKeys.xaiApiKey
+      if (!apiKey) throw new Error('Missing XAI_API_KEY for xai/... model')
+      const { createXai } = await import('@ai-sdk/xai')
+      const xai = createXai({ apiKey, fetch: fetchImpl })
+      const result = streamText({
+        model: xai(parsed.model),
+        system,
+        prompt,
+        temperature,
+        maxOutputTokens,
+        abortSignal: controller.signal,
+      })
+      return {
+        textStream: result.textStream,
+        canonicalModelId: parsed.canonical,
+        provider: parsed.provider,
+        usage: result.totalUsage.then((raw) => normalizeTokenUsage(raw)),
+      }
+    }
+
+    if (parsed.provider === 'google') {
+      const apiKey = apiKeys.googleApiKey
+      if (!apiKey) throw new Error('Missing GOOGLE_GENERATIVE_AI_API_KEY for google/... model')
+      const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
+      const google = createGoogleGenerativeAI({ apiKey, fetch: fetchImpl })
+      const result = streamText({
+        model: google(parsed.model),
+        system,
+        prompt,
+        temperature,
+        maxOutputTokens,
+        abortSignal: controller.signal,
+      })
+      return {
+        textStream: result.textStream,
+        canonicalModelId: parsed.canonical,
+        provider: parsed.provider,
+        usage: result.totalUsage.then((raw) => normalizeTokenUsage(raw)),
+      }
+    }
+
+    const apiKey = apiKeys.openaiApiKey
+    if (!apiKey) throw new Error('Missing OPENAI_API_KEY for openai/... model')
+    const { createOpenAI } = await import('@ai-sdk/openai')
+    const openai = createOpenAI({ apiKey, fetch: fetchImpl })
+    const result = streamText({
+      model: openai(parsed.model),
+      system,
+      prompt,
+      temperature,
+      maxOutputTokens,
+      abortSignal: controller.signal,
+    })
+    return {
+      textStream: result.textStream,
+      canonicalModelId: parsed.canonical,
+      provider: parsed.provider,
+      usage: result.totalUsage.then((raw) => normalizeTokenUsage(raw)),
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('LLM request timed out')
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+}
