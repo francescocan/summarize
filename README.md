@@ -111,8 +111,10 @@ summarize "https://example.com" --json
 - `--stream auto|on|off`
   - `auto` (default): stream only when stdout is a TTY (disabled in `--json` mode)
   - In `--render md` mode, streaming output is buffered and rendered at the end.
-- `--render auto|md|plain`
-  - `auto` (default): render Markdown only when stdout is a TTY
+  - In `--render md-live` mode, streaming output is re-rendered live (TTY only).
+- `--render auto|md-live|md|plain`
+  - `auto` (default): on TTY, uses `md-live` when streaming; otherwise `md`
+  - `md-live`: live Markdown rendering (TTY only, uses terminal synchronized output when supported)
   - `md`: render Markdown to ANSI using `markdansi` (TTY only)
   - `plain`: no Markdown rendering
 - `--verbose`: print detailed progress + extraction diagnostics to stderr
