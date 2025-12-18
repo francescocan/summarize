@@ -698,6 +698,12 @@ export async function runCli(
   }
 
   const progressEnabled = isRichTty(stderr) && !verbose && !json
+  let clearProgressBeforeStdout: (() => void) | null = null
+  const clearProgressForStdout = () => {
+    const fn = clearProgressBeforeStdout
+    clearProgressBeforeStdout = null
+    fn?.()
+  }
 
   const summarizeAsset = async ({
     sourceKind,
@@ -778,10 +784,10 @@ export async function runCli(
 	    const shouldStreamSummaryToStdout =
 	      streamingEnabledForCall && !shouldBufferSummaryForRender && !shouldLiveRenderSummary
 
-    let summaryAlreadyPrinted = false
-    let summary: string
+	    let summaryAlreadyPrinted = false
+	    let summary: string
 
-	    if (streamingEnabledForCall) {
+		    if (streamingEnabledForCall) {
 	      let streamResult: Awaited<ReturnType<typeof streamTextWithModelId>>
 	      try {
 	        streamResult = await streamTextWithModelId({
@@ -803,27 +809,35 @@ export async function runCli(
         throw error
       }
 
-      let streamed = ''
-      const liveRenderer = shouldLiveRenderSummary
-        ? createLiveRenderer({
-            write: (chunk) => stdout.write(chunk),
-            width: terminalWidth(stdout, env),
-            renderFrame: (markdown) =>
-              renderMarkdownAnsi(markdown, {
-                width: terminalWidth(stdout, env),
+	      let streamed = ''
+	      const liveRenderer = shouldLiveRenderSummary
+	        ? createLiveRenderer({
+	            write: (chunk) => {
+	              clearProgressForStdout()
+	              stdout.write(chunk)
+	            },
+	            width: terminalWidth(stdout, env),
+	            renderFrame: (markdown) =>
+	              renderMarkdownAnsi(markdown, {
+	                width: terminalWidth(stdout, env),
                 wrap: true,
                 color: supportsColor(stdout, env),
               }),
           })
         : null
       let lastFrameAtMs = 0
-      try {
-        try {
-          for await (const delta of streamResult.textStream) {
-            streamed += delta
-            if (shouldStreamSummaryToStdout) {
-              stdout.write(delta)
-              continue
+	      try {
+	        try {
+	          let cleared = false
+	          for await (const delta of streamResult.textStream) {
+	            if (!cleared) {
+	              clearProgressForStdout()
+	              cleared = true
+	            }
+	            streamed += delta
+	            if (shouldStreamSummaryToStdout) {
+	              stdout.write(delta)
+	              continue
             }
 
             if (liveRenderer) {
@@ -863,25 +877,25 @@ export async function runCli(
         usage,
         purpose: 'summary',
       })
-      summary = streamed
+	      summary = streamed
 
-      if (shouldStreamSummaryToStdout) {
-        if (!streamed.endsWith('\n')) {
-          stdout.write('\n')
-        }
-        summaryAlreadyPrinted = true
-      }
-    } else {
-      let result: Awaited<ReturnType<typeof summarizeWithModelId>>
-      try {
-        result = await summarizeWithModelId({
-          modelId: parsedModelEffective.canonical,
-          prompt: messages,
-          maxOutputTokens,
-          timeoutMs,
-          fetchImpl: trackedFetch,
-          apiKeys: apiKeysForLlm,
-        })
+	      if (shouldStreamSummaryToStdout) {
+	        if (!streamed.endsWith('\n')) {
+	          stdout.write('\n')
+	        }
+	        summaryAlreadyPrinted = true
+	      }
+	    } else {
+	      let result: Awaited<ReturnType<typeof summarizeWithModelId>>
+	      try {
+	        result = await summarizeWithModelId({
+	          modelId: parsedModelEffective.canonical,
+	          prompt: messages,
+	          maxOutputTokens,
+	          timeoutMs,
+	          fetchImpl: trackedFetch,
+	          apiKeys: apiKeysForLlm,
+	        })
       } catch (error) {
         if (isUnsupportedAttachmentError(error)) {
           throw new Error(
@@ -896,11 +910,11 @@ export async function runCli(
         model: result.canonicalModelId,
         usage: result.usage,
         purpose: 'summary',
-      })
-      summary = result.text
-    }
+	      })
+	      summary = result.text
+	    }
 
-    summary = summary.trim()
+	    summary = summary.trim()
     if (summary.length === 0) {
       throw new Error('LLM returned an empty summary')
     }
@@ -912,11 +926,12 @@ export async function runCli(
         filename: attachment.filename,
       }
 
-	    if (json) {
-	      const finishReport = await buildReport()
-	      const costReport = cost || verbose ? finishReport : null
-	      const input: JsonOutput['input'] =
-	        sourceKind === 'file'
+		    if (json) {
+		      clearProgressForStdout()
+		      const finishReport = await buildReport()
+		      const costReport = cost || verbose ? finishReport : null
+		      const input: JsonOutput['input'] =
+		        sourceKind === 'file'
 	          ? {
 	              kind: 'file',
 	              filePath: sourceLabel,
@@ -960,11 +975,11 @@ export async function runCli(
         summary,
       }
 
-      if (costReport) {
-        writeCostReport(costReport)
-      }
-      stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
-      writeFinishLine({
+	      if (costReport) {
+	        writeCostReport(costReport)
+	      }
+	      stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
+	      writeFinishLine({
         stderr,
         elapsedMs: Date.now() - runStartedAtMs,
         model: parsedModelEffective.canonical,
@@ -976,11 +991,12 @@ export async function runCli(
       return
     }
 
-    if (!summaryAlreadyPrinted) {
-      const rendered =
-        (effectiveRenderMode === 'md' || effectiveRenderMode === 'md-live') && isRichTty(stdout)
-          ? renderMarkdownAnsi(summary, {
-              width: terminalWidth(stdout, env),
+	    if (!summaryAlreadyPrinted) {
+	      clearProgressForStdout()
+	      const rendered =
+	        (effectiveRenderMode === 'md' || effectiveRenderMode === 'md-live') && isRichTty(stdout)
+	          ? renderMarkdownAnsi(summary, {
+	              width: terminalWidth(stdout, env),
               wrap: true,
               color: supportsColor(stdout, env),
             })
@@ -1005,9 +1021,9 @@ export async function runCli(
     })
   }
 
-  if (inputTarget.kind === 'file') {
-    let sizeLabel: string | null = null
-    try {
+	  if (inputTarget.kind === 'file') {
+	    let sizeLabel: string | null = null
+	    try {
       const stat = await fs.stat(inputTarget.filePath)
       if (stat.isFile()) {
         sizeLabel = formatBytes(stat.size)
@@ -1023,28 +1039,37 @@ export async function runCli(
       isTty: progressEnabled,
       write: (data) => stderr.write(data),
     })
-    const spinner = startSpinner({
-      text: sizeLabel ? `Loading file (${sizeLabel})…` : 'Loading file…',
-      enabled: progressEnabled,
-      stream: stderr,
-    })
-
-    const loaded = await (async () => {
-      try {
-        return await loadLocalAsset({ filePath: inputTarget.filePath })
-      } finally {
-        spinner.stopAndClear()
-        stopOscProgress()
-      }
-    })()
-
-    await summarizeAsset({
-      sourceKind: 'file',
-      sourceLabel: loaded.sourceLabel,
-      attachment: loaded.attachment,
-    })
-    return
-  }
+	    const spinner = startSpinner({
+	      text: sizeLabel ? `Loading file (${sizeLabel})…` : 'Loading file…',
+	      enabled: progressEnabled,
+	      stream: stderr,
+	    })
+	    let stopped = false
+	    const stopProgress = () => {
+	      if (stopped) return
+	      stopped = true
+	      spinner.stopAndClear()
+	      stopOscProgress()
+	    }
+	    clearProgressBeforeStdout = stopProgress
+	    try {
+	      const loaded = await loadLocalAsset({ filePath: inputTarget.filePath })
+	      if (progressEnabled) {
+	        spinner.setText(sizeLabel ? `Summarizing (${sizeLabel})…` : 'Summarizing…')
+	      }
+	      await summarizeAsset({
+	        sourceKind: 'file',
+	        sourceLabel: loaded.sourceLabel,
+	        attachment: loaded.attachment,
+	      })
+	      return
+	    } finally {
+	      if (clearProgressBeforeStdout === stopProgress) {
+	        clearProgressBeforeStdout = null
+	      }
+	      stopProgress()
+	    }
+	  }
 
   if (url && !isYoutubeUrl) {
     const kind = await classifyUrl({ url, fetchImpl: trackedFetch, timeoutMs })
@@ -1056,36 +1081,47 @@ export async function runCli(
         isTty: progressEnabled,
         write: (data) => stderr.write(data),
       })
-      const spinner = startSpinner({
-        text: 'Downloading file…',
-        enabled: progressEnabled,
-        stream: stderr,
-      })
+	      const spinner = startSpinner({
+	        text: 'Downloading file…',
+	        enabled: progressEnabled,
+	        stream: stderr,
+	      })
+	      let stopped = false
+	      const stopProgress = () => {
+	        if (stopped) return
+	        stopped = true
+	        spinner.stopAndClear()
+	        stopOscProgress()
+	      }
+	      clearProgressBeforeStdout = stopProgress
+	      try {
+	        const loaded = await (async () => {
+	          try {
+	            return await loadRemoteAsset({ url, fetchImpl: trackedFetch, timeoutMs })
+	          } catch (error) {
+	            if (error instanceof Error && /HTML/i.test(error.message)) {
+	              return null
+	            }
+	            throw error
+	          }
+	        })()
 
-      const loaded = await (async () => {
-        try {
-          return await loadRemoteAsset({ url, fetchImpl: trackedFetch, timeoutMs })
-        } catch (error) {
-          if (error instanceof Error && /HTML/i.test(error.message)) {
-            return null
-          }
-          throw error
-        } finally {
-          spinner.stopAndClear()
-          stopOscProgress()
-        }
-      })()
-
-      if (loaded) {
-        await summarizeAsset({
-          sourceKind: 'asset-url',
-          sourceLabel: loaded.sourceLabel,
-          attachment: loaded.attachment,
-        })
-        return
-      }
-    }
-  }
+	        if (!loaded) return
+	        if (progressEnabled) spinner.setText('Summarizing…')
+	        await summarizeAsset({
+	          sourceKind: 'asset-url',
+	          sourceLabel: loaded.sourceLabel,
+	          attachment: loaded.attachment,
+	        })
+	        return
+	      } finally {
+	        if (clearProgressBeforeStdout === stopProgress) {
+	          clearProgressBeforeStdout = null
+	        }
+	        stopProgress()
+	      }
+	    }
+	  }
 
   if (!url) {
     throw new Error('Only HTTP and HTTPS URLs can be summarized')
@@ -1196,27 +1232,37 @@ export async function runCli(
     isTty: progressEnabled,
     write: (data) => stderr.write(data),
   })
-  const spinner = startSpinner({
-    text: 'Fetching website…',
-    enabled: progressEnabled,
-    stream: stderr,
-  })
-  const extracted = await (async () => {
-    try {
-      return await client.fetchLinkContent(url, {
-        timeoutMs,
-        youtubeTranscript: youtubeMode,
-        firecrawl: firecrawlMode,
-        format: markdownRequested ? 'markdown' : 'text',
-      })
-    } finally {
-      spinner.stopAndClear()
-      stopOscProgress()
-    }
-  })()
-  writeVerbose(
-    stderr,
-    verbose,
+	  const spinner = startSpinner({
+	    text: 'Fetching website…',
+	    enabled: progressEnabled,
+	    stream: stderr,
+	  })
+	  let stopped = false
+		  const stopProgress = () => {
+		    if (stopped) return
+		    stopped = true
+		    spinner.stopAndClear()
+		    stopOscProgress()
+		  }
+		  clearProgressBeforeStdout = stopProgress
+		  try {
+		  const extracted = await (async () => {
+		    try {
+		      const result = await client.fetchLinkContent(url, {
+		        timeoutMs,
+		        youtubeTranscript: youtubeMode,
+		        firecrawl: firecrawlMode,
+		        format: markdownRequested ? 'markdown' : 'text',
+		      })
+		      if (progressEnabled) spinner.setText('Summarizing…')
+		      return result
+		    } catch (error) {
+		      throw error
+		    }
+		  })()
+	  writeVerbose(
+	    stderr,
+	    verbose,
     `extract done strategy=${extracted.diagnostics.strategy} siteName=${formatOptionalString(
       extracted.siteName
     )} title=${formatOptionalString(extracted.title)} transcriptSource=${formatOptionalString(
@@ -1277,11 +1323,12 @@ export async function runCli(
     shares: [],
   })
 
-  if (extractOnly) {
-	    if (json) {
-	      const finishReport = await buildReport()
-	      const costReport = cost || verbose ? finishReport : null
-	      const payload: JsonOutput = {
+	  if (extractOnly) {
+		    clearProgressForStdout()
+		    if (json) {
+		      const finishReport = await buildReport()
+		      const costReport = cost || verbose ? finishReport : null
+		      const payload: JsonOutput = {
 	        input: {
 	          kind: 'url',
 	          url,
@@ -1406,9 +1453,9 @@ export async function runCli(
   let summaryAlreadyPrinted = false
 
   let summary: string
-  if (!isLargeContent) {
-    writeVerbose(stderr, verbose, 'summarize strategy=single', verboseColor)
-    if (streamingEnabledForCall) {
+	  if (!isLargeContent) {
+	    writeVerbose(stderr, verbose, 'summarize strategy=single', verboseColor)
+	    if (streamingEnabledForCall) {
       writeVerbose(
         stderr,
         verbose,
@@ -1424,26 +1471,34 @@ export async function runCli(
         timeoutMs,
         fetchImpl: trackedFetch,
       })
-      let streamed = ''
-      const liveRenderer = shouldLiveRenderSummary
-        ? createLiveRenderer({
-            write: (chunk) => stdout.write(chunk),
-            width: terminalWidth(stdout, env),
-            renderFrame: (markdown) =>
-              renderMarkdownAnsi(markdown, {
-                width: terminalWidth(stdout, env),
+	      let streamed = ''
+	      const liveRenderer = shouldLiveRenderSummary
+	        ? createLiveRenderer({
+	            write: (chunk) => {
+	              clearProgressForStdout()
+	              stdout.write(chunk)
+	            },
+	            width: terminalWidth(stdout, env),
+	            renderFrame: (markdown) =>
+	              renderMarkdownAnsi(markdown, {
+	                width: terminalWidth(stdout, env),
                 wrap: true,
                 color: supportsColor(stdout, env),
               }),
           })
         : null
-      let lastFrameAtMs = 0
-      try {
-        for await (const delta of streamResult.textStream) {
-          streamed += delta
-          if (shouldStreamSummaryToStdout) {
-            stdout.write(delta)
-            continue
+	      let lastFrameAtMs = 0
+	      try {
+	        let cleared = false
+	        for await (const delta of streamResult.textStream) {
+	          if (!cleared) {
+	            clearProgressForStdout()
+	            cleared = true
+	          }
+	          streamed += delta
+	          if (shouldStreamSummaryToStdout) {
+	            stdout.write(delta)
+	            continue
           }
 
           if (liveRenderer) {
@@ -1564,7 +1619,7 @@ export async function runCli(
       shares: [],
     })
 
-    if (streamingEnabledForCall) {
+	    if (streamingEnabledForCall) {
       writeVerbose(
         stderr,
         verbose,
@@ -1580,26 +1635,34 @@ export async function runCli(
         timeoutMs,
         fetchImpl: trackedFetch,
       })
-      let streamed = ''
-      const liveRenderer = shouldLiveRenderSummary
-        ? createLiveRenderer({
-            write: (chunk) => stdout.write(chunk),
-            width: terminalWidth(stdout, env),
-            renderFrame: (markdown) =>
-              renderMarkdownAnsi(markdown, {
-                width: terminalWidth(stdout, env),
+	      let streamed = ''
+	      const liveRenderer = shouldLiveRenderSummary
+	        ? createLiveRenderer({
+	            write: (chunk) => {
+	              clearProgressForStdout()
+	              stdout.write(chunk)
+	            },
+	            width: terminalWidth(stdout, env),
+	            renderFrame: (markdown) =>
+	              renderMarkdownAnsi(markdown, {
+	                width: terminalWidth(stdout, env),
                 wrap: true,
                 color: supportsColor(stdout, env),
               }),
           })
         : null
-      let lastFrameAtMs = 0
-      try {
-        for await (const delta of streamResult.textStream) {
-          streamed += delta
-          if (shouldStreamSummaryToStdout) {
-            stdout.write(delta)
-            continue
+	      let lastFrameAtMs = 0
+	      try {
+	        let cleared = false
+	        for await (const delta of streamResult.textStream) {
+	          if (!cleared) {
+	            clearProgressForStdout()
+	            cleared = true
+	          }
+	          streamed += delta
+	          if (shouldStreamSummaryToStdout) {
+	            stdout.write(delta)
+	            continue
           }
 
           if (liveRenderer) {
@@ -1714,11 +1777,12 @@ export async function runCli(
     return
   }
 
-  if (!summaryAlreadyPrinted) {
-    const rendered =
-      (effectiveRenderMode === 'md' || effectiveRenderMode === 'md-live') && isRichTty(stdout)
-        ? renderMarkdownAnsi(summary, {
-            width: terminalWidth(stdout, env),
+	    if (!summaryAlreadyPrinted) {
+	      clearProgressForStdout()
+	      const rendered =
+	        (effectiveRenderMode === 'md' || effectiveRenderMode === 'md-live') && isRichTty(stdout)
+	          ? renderMarkdownAnsi(summary, {
+	              width: terminalWidth(stdout, env),
             wrap: true,
             color: supportsColor(stdout, env),
           })
@@ -1730,15 +1794,21 @@ export async function runCli(
     }
   }
 
-  const report = await buildReport()
-  if (cost || verbose) writeCostReport(report)
-	  writeFinishLine({
-	    stderr,
-	    elapsedMs: Date.now() - runStartedAtMs,
-	    model: parsedModelEffective.canonical,
-	    strategy,
-	    chunkCount,
-	    report,
-	    color: verboseColor,
-	  })
+	  const report = await buildReport()
+	  if (cost || verbose) writeCostReport(report)
+		  writeFinishLine({
+		    stderr,
+		    elapsedMs: Date.now() - runStartedAtMs,
+		    model: parsedModelEffective.canonical,
+		    strategy,
+		    chunkCount,
+		    report,
+		    color: verboseColor,
+		  })
+		} finally {
+		  if (clearProgressBeforeStdout === stopProgress) {
+		    clearProgressBeforeStdout = null
+		  }
+		  stopProgress()
+		}
 }
