@@ -32,5 +32,17 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Check
-        run: pnpm check
+      - name: Lint
+        run: pnpm lint
+
+      - name: Tests (coverage)
+        run: pnpm test:coverage
+
+      - name: Pack
+        run: |
+          set -euo pipefail
+          rm -rf _pack
+          pnpm pack --pack-destination _pack
+          ls -la _pack
+          tar -tf _pack/*.tgz | head -200
+          tar -tf _pack/*.tgz | grep -E '^package/dist/cli\.js$'
