@@ -2,9 +2,10 @@
 
 Fast CLI for summarizing *anything you can point at*:
 
-- Web pages
+- Web pages (article extraction)
 - YouTube links (best-effort transcripts, optional Apify fallback)
-- Local files (PDFs, images, etc. — forwarded to the model; support depends on provider/model)
+- Remote files (PDFs/images/audio/video via URL — downloaded and forwarded to the model)
+- Local files (PDFs/images/audio/video/text — forwarded or inlined; support depends on provider/model)
 
 It streams output by default on TTY and renders Markdown to ANSI (via `markdansi`). At the end it prints a single “Finished in …” line with timing, token usage, and estimated cost (when available).
 
@@ -21,11 +22,32 @@ npx -y @steipete/summarize "/path/to/file.pdf" --model google/gemini-3-flash-pre
 npx -y @steipete/summarize "/path/to/image.jpeg" --model google/gemini-3-flash-preview
 ```
 
+Remote file URLs work the same (best-effort; the file is downloaded and passed to the model):
+
+```bash
+npx -y @steipete/summarize "https://example.com/report.pdf" --model google/gemini-3-flash-preview
+```
+
 YouTube (supports `youtube.com` and `youtu.be`):
 
 ```bash
 npx -y @steipete/summarize "https://youtu.be/dQw4w9WgXcQ" --youtube auto
 ```
+
+## What file types work?
+
+This is “best effort” and depends on what your selected model/provider accepts. In practice these usually work well:
+
+- `text/*` and common structured text (`.txt`, `.md`, `.json`, `.yaml`, `.xml`, …)  
+  - text-like files are **inlined into the prompt** (instead of attached as a file part) for better provider compatibility
+- PDFs: `application/pdf` (provider support varies; Google is the most reliable in this CLI right now)
+- Images: `image/jpeg`, `image/png`, `image/webp`, `image/gif`
+- Audio/Video: `audio/*`, `video/*` (when supported by the model)
+
+Notes:
+
+- If a provider rejects a media type, the CLI fails fast with a friendly message (no “mystery stack traces”).
+- xAI models currently don’t support attaching generic files (like PDFs) via the AI SDK; use a Google/OpenAI/Anthropic model for those.
 
 ## Model ids
 
