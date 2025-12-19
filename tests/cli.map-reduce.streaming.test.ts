@@ -52,6 +52,12 @@ describe('cli map-reduce streaming', () => {
     })
     ;(stdout as unknown as { isTTY?: boolean; columns?: number }).isTTY = true
     ;(stdout as unknown as { isTTY?: boolean; columns?: number }).columns = 120
+    ;(stdout as unknown as { cursorTo?: (...args: unknown[]) => void }).cursorTo = () => {
+      // no-op TTY cursor positioning for ora spinner
+    }
+    ;(stdout as unknown as { clearLine?: (...args: unknown[]) => void }).clearLine = () => {
+      // no-op TTY line clear for ora spinner
+    }
 
     const stderr = new Writable({
       write(chunk, _encoding, callback) {
@@ -60,6 +66,12 @@ describe('cli map-reduce streaming', () => {
       },
     })
     ;(stderr as unknown as { isTTY?: boolean }).isTTY = true
+    ;(stderr as unknown as { cursorTo?: (...args: unknown[]) => void }).cursorTo = () => {
+      // no-op for ora spinner
+    }
+    ;(stderr as unknown as { clearLine?: (...args: unknown[]) => void }).clearLine = () => {
+      // no-op for ora spinner
+    }
 
     await runCli(
       ['--model', 'openai/gpt-5.2', '--stream', 'on', '--render', 'plain', 'https://example.com'],
