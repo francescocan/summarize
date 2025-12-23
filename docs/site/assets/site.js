@@ -31,24 +31,27 @@ const highlightNav = () => {
 
 const wireCopyButtons = () => {
   const buttons = document.querySelectorAll('[data-copy]')
+  const handleCopyClick = async (button) => {
+    const selector = button.getAttribute('data-copy')
+    const target = selector ? document.querySelector(selector) : null
+    const text = target?.textContent?.trim() ?? ''
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      const prev = button.textContent ?? ''
+      button.textContent = 'Copied'
+      button.setAttribute('data-copied', '1')
+      window.setTimeout(() => {
+        button.textContent = prev
+        button.removeAttribute('data-copied')
+      }, 900)
+    } catch {
+      // ignore
+    }
+  }
   for (const button of buttons) {
-    button.addEventListener('click', async () => {
-      const selector = button.getAttribute('data-copy')
-      const target = selector ? document.querySelector(selector) : null
-      const text = target?.textContent?.trim() ?? ''
-      if (!text) return
-      try {
-        await navigator.clipboard.writeText(text)
-        const prev = button.textContent ?? ''
-        button.textContent = 'Copied'
-        button.setAttribute('data-copied', '1')
-        window.setTimeout(() => {
-          button.textContent = prev
-          button.removeAttribute('data-copied')
-        }, 900)
-      } catch {
-        // ignore
-      }
+    button.addEventListener('click', () => {
+      void handleCopyClick(button)
     })
   }
 }

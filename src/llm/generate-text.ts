@@ -442,8 +442,10 @@ export async function streamTextWithModelId({
         stopTimeout()
         if (typeof iterator.return === 'function') {
           const cleanup = iterator.return()
-          if (cleanup && typeof (cleanup as Promise<unknown>).catch === 'function') {
-            ;(cleanup as Promise<unknown>).catch(() => {})
+          const cleanupPromise =
+            typeof cleanup === 'undefined' ? undefined : (cleanup as Promise<unknown>)
+          if (typeof cleanupPromise?.catch === 'function') {
+            void cleanupPromise.catch(() => {})
           }
         }
       }
