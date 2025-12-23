@@ -606,7 +606,7 @@ export async function generateFree({
   stdout.write(`Wrote ${configPath} (models.free)\n`)
 
   const refinedById = new Map(refined.map((m) => [m.openrouterModelId, m] as const))
-  stderr.write(`\n${heading('Selected')} (sorted, avg latency)\n`)
+  stderr.write(`\n${heading('Selected')} (sorted, Δ latency)\n`)
   for (const modelId of selectedIds) {
     const r = refinedById.get(modelId)
     if (!r) continue
@@ -618,7 +618,7 @@ export async function generateFree({
     const params = typeof r.inferredParamB === 'number' ? `~${r.inferredParamB}B` : null
     const meta = [params, ctx, out, modality].filter(Boolean).join(' ')
     stderr.write(
-      `- ${modelId} ${dim(`avg ${formatMs(avg)} (n=${r.successCount})`)} ${dim(meta)}\n`
+      `- ${modelId} ${dim(`Δ ${formatMs(avg)} (n=${r.successCount})`)} ${dim(meta)}\n`
     )
   }
 }
