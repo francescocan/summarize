@@ -246,6 +246,19 @@ OpenRouter (OpenAI-compatible):
 
 ### `summarize refresh-free`
 
+Quick start: make free the default (keep `auto` available)
+
+```bash
+# writes ~/.summarize/config.json (models.free) and sets model="free"
+summarize refresh-free --set-default
+
+# now this defaults to free models
+summarize "https://example.com"
+
+# whenever you want best quality instead
+summarize "https://example.com" --model auto
+```
+
 Regenerates the `free` preset (writes `models.free` into `~/.summarize/config.json`) by:
 
 - Fetching OpenRouter `/models`, filtering `:free`
@@ -265,6 +278,7 @@ Flags:
 - `--runs 2` (default): extra timing runs per selected model (total runs = 1 + runs)
 - `--smart 3` (default): how many “smart-first” picks (rest filled by fastest)
 - `--min-params 27b` (default): ignore models with inferred size smaller than N billion parameters
+- `--max-age-days 180` (default): ignore models older than N days (set 0 to disable)
 - `--set-default`: also sets `"model": "free"` in `~/.summarize/config.json`
 
 Example:
