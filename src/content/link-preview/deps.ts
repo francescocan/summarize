@@ -1,5 +1,31 @@
 import type { CacheMode, TranscriptSource } from './types.js'
 
+// Enum-like constants for progress kinds (keeps call sites typo-resistant without TS `enum` runtime quirks).
+export const ProgressKind = {
+  FetchHtmlStart: 'fetch-html-start',
+  FetchHtmlProgress: 'fetch-html-progress',
+  FetchHtmlDone: 'fetch-html-done',
+
+  TranscriptMediaDownloadStart: 'transcript-media-download-start',
+  TranscriptMediaDownloadProgress: 'transcript-media-download-progress',
+  TranscriptMediaDownloadDone: 'transcript-media-download-done',
+
+  TranscriptWhisperStart: 'transcript-whisper-start',
+  TranscriptWhisperProgress: 'transcript-whisper-progress',
+
+  TranscriptStart: 'transcript-start',
+  TranscriptDone: 'transcript-done',
+
+  FirecrawlStart: 'firecrawl-start',
+  FirecrawlDone: 'firecrawl-done',
+
+  NitterStart: 'nitter-start',
+  NitterDone: 'nitter-done',
+
+  BirdStart: 'bird-start',
+  BirdDone: 'bird-done',
+} as const
+
 export type LinkPreviewProgressEvent =
   | { kind: 'fetch-html-start'; url: string }
   | {
