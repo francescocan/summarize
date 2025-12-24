@@ -8,6 +8,19 @@ async function importPodcastProviderWithFfmpeg(plan: SpawnPlan) {
   vi.resetModules()
   vi.doMock('node:child_process', () => ({
     spawn: (_cmd: string, args: string[]) => {
+      if (_cmd === 'ffprobe') {
+        const handlers = new Map<string, (value?: any) => void>()
+        const proc: any = {
+          stdout: { setEncoding: () => proc, on: (_event: string, _handler: any) => proc },
+          on(event: string, handler: (value?: any) => void) {
+            handlers.set(event, handler)
+            return proc
+          },
+        }
+        queueMicrotask(() => handlers.get('error')?.(new Error('spawn ENOENT')))
+        return proc
+      }
+
       if (_cmd !== 'ffmpeg' || !args.includes('-version')) {
         throw new Error(`Unexpected spawn: ${_cmd} ${args.join(' ')}`)
       }
@@ -154,4 +167,3 @@ describe('podcast transcript provider - streaming download branches', () => {
     }
   })
 })
-

@@ -21,6 +21,7 @@ async function importPodcastProvider({ ffmpegAvailable }: { ffmpegAvailable: boo
   vi.doMock('../src/transcription/whisper.js', () => ({
     MAX_OPENAI_UPLOAD_BYTES: 25 * 1024 * 1024,
     isFfmpegAvailable: async () => ffmpegAvailable,
+    probeMediaDurationSecondsWithFfprobe: async () => null,
     transcribeMediaWithWhisper,
     transcribeMediaFileWithWhisper,
   }))
@@ -209,4 +210,3 @@ describe('podcast transcript provider extra branches', () => {
     expect(canHandle({ url: 'https://example.com/page', html: '<html/>', resourceKey: null })).toBe(false)
   })
 })
-

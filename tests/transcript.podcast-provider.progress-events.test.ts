@@ -20,10 +20,30 @@ async function importPodcastProvider({
 
   const transcribeMediaFileWithWhisper = vi.fn(async (args: any) => {
     if (transcribePlan === 'file') {
-      args?.onProgress?.({ done: 0, total: 3 })
-      args?.onProgress?.({ done: 1, total: 3 })
-      args?.onProgress?.({ done: 2, total: 3 })
-      args?.onProgress?.({ done: 3, total: 3 })
+      args?.onProgress?.({
+        partIndex: null,
+        parts: 3,
+        processedDurationSeconds: null,
+        totalDurationSeconds: null,
+      })
+      args?.onProgress?.({
+        partIndex: 1,
+        parts: 3,
+        processedDurationSeconds: null,
+        totalDurationSeconds: null,
+      })
+      args?.onProgress?.({
+        partIndex: 2,
+        parts: 3,
+        processedDurationSeconds: null,
+        totalDurationSeconds: null,
+      })
+      args?.onProgress?.({
+        partIndex: 3,
+        parts: 3,
+        processedDurationSeconds: null,
+        totalDurationSeconds: null,
+      })
     }
     return { text: 'ok-file', provider: 'openai', error: null, notes: [] }
   })
@@ -31,6 +51,7 @@ async function importPodcastProvider({
   vi.doMock('../src/transcription/whisper.js', () => ({
     MAX_OPENAI_UPLOAD_BYTES: maxUploadBytes,
     isFfmpegAvailable: () => Promise.resolve(ffmpegAvailable),
+    probeMediaDurationSecondsWithFfprobe: async () => null,
     transcribeMediaWithWhisper,
     transcribeMediaFileWithWhisper,
   }))
@@ -131,8 +152,7 @@ describe('podcast provider progress events', () => {
     expect(result.source).toBe('whisper')
     const progress = events.filter((e) => e.kind === 'transcript-whisper-progress')
     expect(progress.length).toBeGreaterThan(0)
-    expect(progress.some((e) => e.done === 1 && e.total === 3)).toBe(true)
-    expect(progress.some((e) => e.done === 3 && e.total === 3)).toBe(true)
+    expect(progress.some((e) => e.partIndex === 1 && e.parts === 3)).toBe(true)
+    expect(progress.some((e) => e.partIndex === 3 && e.parts === 3)).toBe(true)
   })
 })
-

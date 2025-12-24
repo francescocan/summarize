@@ -6,6 +6,7 @@ async function importPodcastProvider() {
   vi.doMock('../src/transcription/whisper.js', () => ({
     MAX_OPENAI_UPLOAD_BYTES: 1024 * 1024,
     isFfmpegAvailable: () => Promise.resolve(true),
+    probeMediaDurationSecondsWithFfprobe: async () => null,
     transcribeMediaWithWhisper: vi.fn(async () => ({
       text: 'hello from spotify',
       provider: 'openai',
@@ -92,4 +93,3 @@ describe('podcast provider - Spotify embed audio', () => {
     expect((result.metadata as any)?.durationSeconds).toBe(90)
   })
 })
-

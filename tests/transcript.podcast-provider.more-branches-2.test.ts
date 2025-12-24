@@ -19,6 +19,7 @@ async function importPodcastProvider() {
   vi.doMock('../src/transcription/whisper.js', () => ({
     MAX_OPENAI_UPLOAD_BYTES: 100,
     isFfmpegAvailable: () => Promise.resolve(true),
+    probeMediaDurationSecondsWithFfprobe: async () => null,
     transcribeMediaWithWhisper,
     transcribeMediaFileWithWhisper,
   }))
@@ -270,4 +271,3 @@ describe('podcast provider extra branches (spotify/apple/transcribe)', () => {
     expect(String(result.notes)).toContain('Download failed')
   })
 })
-
