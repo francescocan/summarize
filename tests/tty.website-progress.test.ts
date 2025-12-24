@@ -65,4 +65,75 @@ describe('tty/website-progress', () => {
 
     expect(texts.at(-1)).toBe('Transcribing (podcast)…')
   })
+
+  it('renders audio download + whisper progress with sane formatting', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+
+    const texts: string[] = []
+    const progress = createWebsiteProgress({
+      enabled: true,
+      spinner: { setText: (text) => texts.push(text) },
+    })
+    expect(progress).not.toBeNull()
+
+    progress!.onProgress({
+      kind: 'transcript-media-download-start',
+      url: 'https://example.com',
+      service: 'podcast',
+      mediaUrl: 'https://cdn.example.com/audio.mp3',
+      totalBytes: 15 * 1024,
+    })
+
+    vi.setSystemTime(162_000)
+    progress!.onProgress({
+      kind: 'transcript-media-download-progress',
+      url: 'https://example.com',
+      service: 'podcast',
+      downloadedBytes: 136 * 1024,
+      totalBytes: 15 * 1024,
+    })
+
+    const lastDownload = texts.at(-1) ?? ''
+    expect(lastDownload).toContain('Downloading audio (136 KB, 2m 42s')
+    expect(lastDownload).toContain('B/s')
+    expect(lastDownload).not.toContain('2m42s')
+    expect(lastDownload).not.toContain('KB/')
+
+    progress!.onProgress({
+      kind: 'transcript-media-download-done',
+      url: 'https://example.com',
+      service: 'podcast',
+      downloadedBytes: 136 * 1024,
+      totalBytes: 15 * 1024,
+    })
+
+    vi.setSystemTime(162_000)
+    progress!.onProgress({
+      kind: 'transcript-whisper-start',
+      url: 'https://example.com',
+      service: 'podcast',
+      providerHint: 'openai',
+      totalDurationSeconds: 3600,
+      parts: null,
+    })
+
+    vi.setSystemTime(287_000)
+    progress!.onProgress({
+      kind: 'transcript-whisper-progress',
+      url: 'https://example.com',
+      service: 'podcast',
+      processedDurationSeconds: 600,
+      totalDurationSeconds: 3600,
+      partIndex: 1,
+      parts: 6,
+    })
+
+    const lastWhisper = texts.at(-1) ?? ''
+    expect(lastWhisper).toContain('Transcribing (Whisper/OpenAI, 10m/1h')
+    expect(lastWhisper).toContain('1/6')
+    expect(lastWhisper).toContain('2m 5s')
+
+    vi.useRealTimers()
+  })
 })
