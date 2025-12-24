@@ -11,7 +11,10 @@ const htmlResponse = (html: string, status = 200) =>
 
 const generateTextMock = vi.fn(async () => ({ text: 'OK' }))
 const createOpenAIMock = vi.fn(({ apiKey }: { apiKey: string }) => {
-  return (modelId: string) => ({ provider: 'openai', modelId, apiKey })
+  const createSeeableModel = (modelId: string) => ({ provider: 'openai', modelId, apiKey })
+  return Object.assign(createSeeableModel, {
+    chat: (modelId: string) => ({ provider: 'openai-chat', modelId, apiKey }),
+  })
 })
 const createGoogleMock = vi.fn(({ apiKey }: { apiKey: string }) => {
   return (modelId: string) => ({ provider: 'google', modelId, apiKey })
@@ -89,6 +92,44 @@ describe('cli LLM provider selection (direct keys)', () => {
     expect(createGoogleMock).toHaveBeenCalledTimes(0)
     expect(createXaiMock).toHaveBeenCalledTimes(0)
     expect(createAnthropicMock).toHaveBeenCalledTimes(0)
+  })
+
+  it('uses Z.AI when --model is zai/...', async () => {
+    generateTextMock.mockReset().mockResolvedValue({ text: 'OK' })
+    createOpenAIMock.mockClear()
+    createGoogleMock.mockClear()
+    createXaiMock.mockClear()
+    createAnthropicMock.mockClear()
+
+    const html =
+      '<!doctype html><html><head><title>Hello</title></head>' +
+      '<body><article><p>Hi</p></article></body></html>'
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.url
+      if (url === 'https://example.com') return htmlResponse(html)
+      throw new Error(`Unexpected fetch call: ${url}`)
+    })
+
+    const out = collectStdout()
+    await runCli(['--model', 'zai/glm-4.7', '--timeout', '2s', 'https://example.com'], {
+      env: { Z_AI_API_KEY: 'zai-test', OPENAI_API_KEY: 'openai-test' },
+      fetch: fetchMock as unknown as typeof fetch,
+      stdout: out.stdout,
+      stderr: new Writable({
+        write(_c, _e, cb) {
+          cb()
+        },
+      }),
+    })
+
+    expect(out.getText().trim()).toBe('OK')
+    const openaiOptions = createOpenAIMock.mock.calls[0]?.[0] as {
+      apiKey?: string
+      baseURL?: string
+    }
+    expect(openaiOptions.apiKey).toBe('zai-test')
+    expect(openaiOptions.baseURL).toBe('https://api.z.ai/api/paas/v4')
   })
 
   it('uses Google when --model is google/...', async () => {

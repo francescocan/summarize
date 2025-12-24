@@ -64,5 +64,11 @@ describe('model spec parsing', () => {
     expect(anthropic.kind).toBe('fixed')
     expect(anthropic.transport).toBe('native')
     expect(anthropic.requiredEnv).toBe('ANTHROPIC_API_KEY')
+
+    const zai = parseRequestedModelId('zai/glm-4.7')
+    expect(zai.kind).toBe('fixed')
+    expect(zai.transport).toBe('native')
+    expect(zai.requiredEnv).toBe('Z_AI_API_KEY')
+    expect(zai.llmModelId).toBe('openai/glm-4.7')
   })
 })

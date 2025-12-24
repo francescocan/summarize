@@ -366,4 +366,16 @@ describe('config loading', () => {
       /cli\.gemini\.extraArgs/
     )
   })
+
+  it('parses openai.useChatCompletions', () => {
+    const { root } = writeJsonConfig({
+      model: { id: 'openai/gpt-5.2' },
+      openai: { useChatCompletions: true },
+    })
+    const result = loadSummarizeConfig({ env: { HOME: root } })
+    expect(result.config).toEqual({
+      model: { id: 'openai/gpt-5.2' },
+      openai: { useChatCompletions: true },
+    })
+  })
 })
