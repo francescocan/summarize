@@ -8,6 +8,7 @@
 - Document Z.AI + chat-completions toggle in README/docs.
 - Podcast links: Apple Podcasts + RSS + Spotify episodes → Whisper transcript (full episodes; avoids preview clips when RSS enclosure exists).
 - Metrics: `--metrics on` now shows transcript length; `--metrics detailed` shows transcript duration/words + transcription source/provider; hide `calls=1`.
+- Progress: smarter elapsed formatting (`2m 42s`), rounded transfer rates, and better phase labels (transcription no longer looks like a stuck "Fetching website").
 - Markdown: render links as OSC-8 hyperlinks in TTY output (clickable labels; no long wrapped URLs).
 
 ## 0.5.0 - 2025-12-24

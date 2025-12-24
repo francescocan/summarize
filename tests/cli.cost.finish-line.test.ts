@@ -139,7 +139,7 @@ describe('cli finish line + metrics', () => {
     const err = stderr.getText()
     expect(err).toContain('$0.3265')
     expect(err).not.toContain('estimated=')
-    expect(err).toContain('123,456/7,890/131,346 (in/out/Σ)')
+    expect(err).toContain('123k/7.9k/131k (in/out/Σ)')
     expect(err).not.toContain('calls=1')
     expect(err).not.toContain('metrics llm provider=')
     expect(err).not.toContain('firecrawl=')
