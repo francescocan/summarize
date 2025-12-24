@@ -59,8 +59,9 @@ describe('--metrics on', () => {
       stderr,
     })
 
-    expect(stderrText).toMatch(/\blen transcript=44s\b/)
-    expect(stderrText).toMatch(/\bwords\b/)
+    expect(stderrText).toMatch(/⧗/)
+    expect(stderrText).toMatch(/\bw~?\d/)
+    expect(stderrText).toMatch(/\bch\b/)
     expect(stderrText).not.toContain('calls=')
     expect(stderrText).not.toContain('input=')
   })

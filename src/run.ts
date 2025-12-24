@@ -1203,9 +1203,21 @@ function writeFinishLine({
       } Δ${totalTokens != null ? formatCompactCount(totalTokens) : 'unknown'}`
     : null
 
+  const compactTranscript =
+    !detailed && extraParts ? extraParts.find((part) => part.startsWith('txc=')) ?? null : null
+  const compactTranscriptLabel =
+    compactTranscript && compactTranscript.startsWith('txc=')
+      ? compactTranscript.slice('txc='.length)
+      : null
+  const filteredExtraParts =
+    compactTranscriptLabel && extraParts
+      ? extraParts.filter((part) => part !== compactTranscript)
+      : extraParts
+
   const summaryParts: Array<string | null> = [
     formatElapsedMs(elapsedMs),
     costUsd != null ? formatUSD(costUsd) : null,
+    compactTranscriptLabel,
     formatModelLabelForDisplay(model),
     tokensPart,
   ]
@@ -1216,16 +1228,15 @@ function writeFinishLine({
   stderr.write('\n')
   stderr.write(`${ansi('1;32', line1, color)}\n`)
   const lenParts =
-    extraParts?.filter((part) => part.startsWith('input=') || part.startsWith('transcript=')) ?? []
+    filteredExtraParts?.filter(
+      (part) => part.startsWith('input=') || part.startsWith('transcript=')
+    ) ?? []
   const miscParts =
-    extraParts?.filter((part) => !part.startsWith('input=') && !part.startsWith('transcript=')) ??
-    []
+    filteredExtraParts?.filter(
+      (part) => !part.startsWith('input=') && !part.startsWith('transcript=')
+    ) ?? []
 
   if (!detailed) {
-    const transcriptParts = lenParts.filter((part) => part.startsWith('transcript='))
-    if (transcriptParts.length > 0) {
-      stderr.write(`${ansi('0;90', `len ${transcriptParts.join(' ')}`, color)}\n`)
-    }
     return
   }
 
@@ -1331,8 +1342,33 @@ function buildLengthPartsForFinishLine(
   const parts = buildDetailedLengthPartsForExtracted(extracted)
   if (parts.length === 0) return null
   if (detailed) return parts
-  const transcriptOnly = parts.filter((part) => part.startsWith('transcript='))
-  return transcriptOnly.length > 0 ? transcriptOnly : parts
+  const compactTranscript = buildCompactTranscriptPart(extracted)
+  return compactTranscript ? [`txc=${compactTranscript}`] : null
+}
+
+function buildCompactTranscriptPart(extracted: Parameters<typeof buildDetailedLengthPartsForExtracted>[0]): string | null {
+  const isYouTube =
+    extracted.siteName === 'YouTube' || /youtube\.com|youtu\.be/i.test(extracted.url)
+  if (!isYouTube && !extracted.transcriptCharacters) return null
+
+  const transcriptChars = extracted.transcriptCharacters
+  if (typeof transcriptChars !== 'number' || transcriptChars <= 0) return null
+
+  const wordEstimate = Math.max(0, Math.round(transcriptChars / 6))
+  const transcriptWords = extracted.transcriptWordCount ?? wordEstimate
+  const minutesEstimate = Math.max(1, Math.round(transcriptWords / 160))
+
+  const durationIsExact =
+    typeof extracted.mediaDurationSeconds === 'number' && extracted.mediaDurationSeconds > 0
+  const duration = durationIsExact
+    ? formatDurationSecondsSmart(extracted.mediaDurationSeconds)
+    : `~${formatDurationSecondsSmart(minutesEstimate * 60)}`
+
+  const wordPrefix = extracted.transcriptWordCount ? 'w' : 'w~'
+  const wordLabel = `${wordPrefix}${formatCompactCount(transcriptWords)}`
+  const charLabel = `${formatCompactCount(transcriptChars)} ch`
+
+  return `⧗${duration} ${wordLabel} ${charLabel}`
 }
 
 export async function runCli(
