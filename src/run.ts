@@ -1364,11 +1364,9 @@ function buildCompactTranscriptPart(extracted: Parameters<typeof buildDetailedLe
     ? formatDurationSecondsSmart(extracted.mediaDurationSeconds)
     : `~${formatDurationSecondsSmart(minutesEstimate * 60)}`
 
-  const wordPrefix = extracted.transcriptWordCount ? 'w' : 'w~'
-  const wordLabel = `${wordPrefix}${formatCompactCount(transcriptWords)}`
-  const charLabel = `${formatCompactCount(transcriptChars)} ch`
+  const wordLabel = `${formatCompactCount(transcriptWords)} words`
 
-  return `⧗${duration} ${wordLabel} ${charLabel}`
+  return `${duration}⏲ ${wordLabel}`
 }
 
 export async function runCli(

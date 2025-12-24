@@ -25,7 +25,7 @@
   - `--metrics on` shows transcript length; `--metrics detailed` shows transcript duration/words + transcription source/provider; hides `calls=1`.
   - Smarter duration formatting (`1h 13m 4s`, `44s`) and rounded transfer rates.
   - Make Markdown links terminal-clickable by materializing URLs.
-  - `--metrics on` now renders a single finish line with a compact transcript block (⧗… w… …ch) before the model.
+  - `--metrics on` now renders a single finish line with a compact transcript block (…⏲ … words) before the model.
 - **Cost**
   - Include OpenAI Whisper transcription estimate (duration-based) in the finish line total (`txcost=…`); configurable via `openai.whisperUsdPerMinute`.
 
