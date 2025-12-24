@@ -72,6 +72,7 @@ export const resolveTranscriptForLink = async (
 
   const providerResult = await executeProvider(provider, baseContext, {
     fetch: deps.fetch,
+    scrapeWithFirecrawl: deps.scrapeWithFirecrawl,
     apifyApiToken: deps.apifyApiToken,
     ytDlpPath: deps.ytDlpPath,
     falApiKey: deps.falApiKey,
@@ -109,6 +110,7 @@ export const resolveTranscriptForLink = async (
     return {
       text: cacheOutcome.cached.content,
       source: diagnostics.provider,
+      metadata: cacheOutcome.cached.metadata ?? null,
       diagnostics,
     }
   }
@@ -116,6 +118,7 @@ export const resolveTranscriptForLink = async (
   return {
     text: providerResult.text,
     source: providerResult.source,
+    metadata: providerResult.metadata ?? null,
     diagnostics,
   }
 }

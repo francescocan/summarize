@@ -102,9 +102,21 @@ describe('link-preview content utils', () => {
   })
 
   it('summarizes transcript basics', () => {
-    expect(summarizeTranscript(null)).toEqual({ transcriptCharacters: null, transcriptLines: null })
-    expect(summarizeTranscript('')).toEqual({ transcriptCharacters: null, transcriptLines: null })
-    expect(summarizeTranscript('a\n\nb')).toEqual({ transcriptCharacters: 4, transcriptLines: 2 })
+    expect(summarizeTranscript(null)).toEqual({
+      transcriptCharacters: null,
+      transcriptLines: null,
+      transcriptWordCount: null,
+    })
+    expect(summarizeTranscript('')).toEqual({
+      transcriptCharacters: null,
+      transcriptLines: null,
+      transcriptWordCount: null,
+    })
+    expect(summarizeTranscript('a\n\nb')).toEqual({
+      transcriptCharacters: 4,
+      transcriptLines: 2,
+      transcriptWordCount: 2,
+    })
   })
 
   it('ensures transcript diagnostics when missing', () => {
@@ -162,6 +174,8 @@ describe('link-preview content utils', () => {
     expect(withBudget.truncated).toBe(true)
     expect(withBudget.transcriptCharacters).toBe(1)
     expect(withBudget.transcriptLines).toBe(1)
+    expect(withBudget.transcriptWordCount).toBe(1)
+    expect(withBudget.mediaDurationSeconds).toBeNull()
 
     const noBudget = finalizeExtractedLinkContent({
       url: 'https://example.com',
@@ -177,5 +191,22 @@ describe('link-preview content utils', () => {
     expect(noBudget.wordCount).toBe(3)
     expect(noBudget.transcriptCharacters).toBeNull()
     expect(noBudget.transcriptLines).toBeNull()
+    expect(noBudget.transcriptWordCount).toBeNull()
+    expect(noBudget.mediaDurationSeconds).toBeNull()
+  })
+
+  it('pulls media duration from transcript metadata', () => {
+    const diagnostics = makeDiagnostics()
+    const result = finalizeExtractedLinkContent({
+      url: 'https://example.com',
+      baseContent: 'Transcript:\nhello',
+      maxCharacters: null,
+      title: null,
+      description: null,
+      siteName: null,
+      transcriptResolution: { text: 'hello', source: 'whisper', metadata: { durationSeconds: 123 } },
+      diagnostics,
+    })
+    expect(result.mediaDurationSeconds).toBe(123)
   })
 })

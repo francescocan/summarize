@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const spawnMock = vi.hoisted(() => vi.fn())
 const fsMock = vi.hoisted(() => ({
+  stat: vi.fn(),
   readFile: vi.fn(),
   unlink: vi.fn(),
 }))
@@ -37,6 +38,7 @@ describe('yt-dlp transcript helper', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    fsMock.stat.mockResolvedValue({ size: 5 })
     fsMock.readFile.mockResolvedValue(Buffer.from('audio'))
     fsMock.unlink.mockResolvedValue(undefined)
     globalThis.fetch = vi.fn() as unknown as typeof fetch

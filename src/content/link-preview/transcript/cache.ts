@@ -63,7 +63,11 @@ export const readTranscriptCache = async ({
   diagnostics.cacheStatus = 'hit'
   diagnostics.notes = appendNote(diagnostics.notes, 'Served transcript from cache')
 
-  const resolution: TranscriptResolution = { text: cached.content, source: provider }
+  const resolution: TranscriptResolution = {
+    text: cached.content,
+    source: provider,
+    metadata: cached.metadata ?? null,
+  }
   return { cached, resolution, diagnostics }
 }
 
@@ -89,6 +93,7 @@ export const mapCachedSource = (source: string | null): TranscriptSource | null 
     source === 'youtubei' ||
     source === 'captionTracks' ||
     source === 'yt-dlp' ||
+    source === 'whisper' ||
     source === 'apify' ||
     source === 'html' ||
     source === 'unavailable'

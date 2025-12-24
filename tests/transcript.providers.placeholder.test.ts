@@ -37,7 +37,10 @@ describe('placeholder transcript providers', () => {
       options
     )
     expect(podcastResult.text).toBeNull()
-    expect(podcastResult.metadata).toEqual({ provider: 'podcast', reason: 'not_implemented' })
+    expect(podcastResult.metadata).toEqual({
+      provider: 'podcast',
+      reason: 'missing_transcription_keys',
+    })
 
     const genericResult = await generic.fetchTranscript(contextFor('https://example.com'), options)
     expect(genericResult.text).toBeNull()

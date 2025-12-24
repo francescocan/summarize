@@ -25,6 +25,7 @@ export interface TranscriptResolution {
   diagnostics?: TranscriptDiagnostics
   source: TranscriptSource | null
   text: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 export interface ExtractedLinkContent {
@@ -38,7 +39,9 @@ export interface ExtractedLinkContent {
   wordCount: number
   transcriptCharacters: number | null
   transcriptLines: number | null
+  transcriptWordCount: number | null
   transcriptSource: TranscriptSource | null
+  mediaDurationSeconds: number | null
   video: { kind: 'youtube' | 'direct'; url: string } | null
   isVideoOnly: boolean
   diagnostics: ContentFetchDiagnostics

@@ -2,6 +2,7 @@ export type TranscriptSource =
   | 'youtubei'
   | 'captionTracks'
   | 'yt-dlp'
+  | 'whisper'
   | 'apify'
   | 'html'
   | 'unavailable'
@@ -46,5 +47,6 @@ export interface ContentFetchDiagnostics {
 export interface TranscriptResolution {
   text: string | null
   source: TranscriptSource | null
+  metadata?: Record<string, unknown> | null
   diagnostics?: TranscriptDiagnostics
 }

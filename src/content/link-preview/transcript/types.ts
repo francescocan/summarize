@@ -1,4 +1,5 @@
 import type { YoutubeTranscriptMode } from '../content/types.js'
+import type { ScrapeWithFirecrawl } from '../deps.js'
 import type { TranscriptResolution, TranscriptSource } from '../types.js'
 
 export type TranscriptService = 'youtube' | 'podcast' | 'generic'
@@ -11,6 +12,7 @@ export interface ProviderContext {
 
 export interface ProviderFetchOptions {
   fetch: typeof fetch
+  scrapeWithFirecrawl?: ScrapeWithFirecrawl | null
   apifyApiToken: string | null
   youtubeTranscriptMode: YoutubeTranscriptMode
   ytDlpPath: string | null

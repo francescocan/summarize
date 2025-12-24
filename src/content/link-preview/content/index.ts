@@ -36,6 +36,20 @@ const MIN_HTML_DOCUMENT_CHARACTERS_FOR_FALLBACK = 5000
 const TWITTER_HOSTS = new Set(['x.com', 'twitter.com', 'mobile.twitter.com'])
 const NITTER_HOST = 'nitter.net'
 
+function extractSpotifyEpisodeId(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
+    if (!host.endsWith('spotify.com')) return null
+    const parts = parsed.pathname.split('/').filter(Boolean)
+    const idx = parts.indexOf('episode')
+    const id = idx >= 0 ? parts[idx + 1] : null
+    return id && /^[A-Za-z0-9]+$/.test(id) ? id : null
+  } catch {
+    return null
+  }
+}
+
 function stripLeadingTitle(content: string, title: string | null | undefined): string {
   if (!(content && title)) {
     return content
@@ -113,6 +127,63 @@ export async function fetchLinkContent(
 
   const canUseFirecrawl =
     firecrawlMode !== 'off' && deps.scrapeWithFirecrawl !== null && !isYouTubeUrl(url)
+
+  const spotifyEpisodeId = extractSpotifyEpisodeId(url)
+  if (spotifyEpisodeId) {
+    if (!deps.openaiApiKey && !deps.falApiKey) {
+      throw new Error(
+        'Spotify episode transcription requires OPENAI_API_KEY or FAL_KEY (Whisper); otherwise you may only get a captcha/recaptcha HTML page.'
+      )
+    }
+
+    const transcriptResolution = await resolveTranscriptForLink(url, null, deps, {
+      youtubeTranscriptMode,
+      cacheMode,
+    })
+    if (!transcriptResolution.text) {
+      const notes = transcriptResolution.diagnostics?.notes
+      const suffix = notes ? ` (${notes})` : ''
+      throw new Error(`Failed to transcribe Spotify episode${suffix}`)
+    }
+
+    const transcriptDiagnostics = ensureTranscriptDiagnostics(
+      transcriptResolution,
+      cacheMode ?? 'default'
+    )
+    transcriptDiagnostics.notes = appendNote(
+      transcriptDiagnostics.notes,
+      'Spotify episode: skipped HTML fetch to avoid captcha pages'
+    )
+
+    return finalizeExtractedLinkContent({
+      url,
+      baseContent: selectBaseContent('', transcriptResolution.text),
+      maxCharacters,
+      title: null,
+      description: null,
+      siteName: 'Spotify',
+      transcriptResolution,
+      video: null,
+      isVideoOnly: false,
+      diagnostics: {
+        strategy: 'html',
+        firecrawl: {
+          attempted: false,
+          used: false,
+          cacheMode,
+          cacheStatus: cacheMode === 'bypass' ? 'bypassed' : 'unknown',
+          notes: 'Spotify short-circuit skipped HTML/Firecrawl',
+        },
+        markdown: {
+          requested: markdownRequested,
+          used: false,
+          provider: null,
+          notes: 'Spotify short-circuit uses transcript content',
+        },
+        transcript: transcriptDiagnostics,
+      },
+    })
+  }
 
   let firecrawlAttempted = false
   let firecrawlPayload: FirecrawlScrapeResult | null = null

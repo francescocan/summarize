@@ -60,6 +60,10 @@ export async function fetchHtmlDocument(
       contentType &&
       !contentType.includes('text/html') &&
       !contentType.includes('application/xhtml+xml') &&
+      !contentType.includes('application/xml') &&
+      !contentType.includes('text/xml') &&
+      !contentType.includes('application/rss+xml') &&
+      !contentType.includes('application/atom+xml') &&
       !contentType.startsWith('text/')
     ) {
       throw new Error(`Unsupported content-type for HTML document fetch: ${contentType}`)

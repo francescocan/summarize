@@ -15,6 +15,24 @@ const WWW_PREFIX_PATTERN = /^www\./i
 const TRANSCRIPT_LINE_SPLIT_PATTERN = /\r?\n/
 const WORD_SPLIT_PATTERN = /\s+/g
 
+function resolveMediaDurationSecondsFromTranscriptMetadata(
+  metadata: Record<string, unknown> | null | undefined
+): number | null {
+  if (!metadata) return null
+  const direct = (metadata as { durationSeconds?: unknown }).durationSeconds
+  if (typeof direct === 'number' && Number.isFinite(direct) && direct > 0) {
+    return direct
+  }
+  const media = (metadata as { media?: unknown }).media
+  if (typeof media === 'object' && media !== null) {
+    const nested = (media as { durationSeconds?: unknown }).durationSeconds
+    if (typeof nested === 'number' && Number.isFinite(nested) && nested > 0) {
+      return nested
+    }
+  }
+  return null
+}
+
 export function resolveCacheMode(options?: FetchLinkContentOptions) {
   return options?.cacheMode ?? DEFAULT_CACHE_MODE
 }
@@ -87,7 +105,7 @@ export function selectBaseContent(sourceContent: string, transcriptText: string 
 
 export function summarizeTranscript(transcriptText: string | null) {
   if (!transcriptText) {
-    return { transcriptCharacters: null, transcriptLines: null }
+    return { transcriptCharacters: null, transcriptLines: null, transcriptWordCount: null }
   }
   const transcriptCharacters = transcriptText.length > 0 ? transcriptText.length : null
   const transcriptLinesRaw = transcriptText
@@ -95,7 +113,15 @@ export function summarizeTranscript(transcriptText: string | null) {
     .map((line) => line.trim())
     .filter((line) => line.length > 0).length
   const transcriptLines = transcriptLinesRaw > 0 ? transcriptLinesRaw : null
-  return { transcriptCharacters, transcriptLines }
+  const transcriptWordCountRaw =
+    transcriptText.length > 0
+      ? transcriptText
+          .split(WORD_SPLIT_PATTERN)
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0).length
+      : 0
+  const transcriptWordCount = transcriptWordCountRaw > 0 ? transcriptWordCountRaw : null
+  return { transcriptCharacters, transcriptLines, transcriptWordCount }
 }
 
 export function ensureTranscriptDiagnostics(
@@ -145,7 +171,12 @@ export function finalizeExtractedLinkContent({
                   .filter((value) => value.length > 0).length
               : 0,
         }
-  const { transcriptCharacters, transcriptLines } = summarizeTranscript(transcriptResolution.text)
+  const { transcriptCharacters, transcriptLines, transcriptWordCount } = summarizeTranscript(
+    transcriptResolution.text
+  )
+  const mediaDurationSeconds = resolveMediaDurationSecondsFromTranscriptMetadata(
+    transcriptResolution.metadata
+  )
 
   return {
     url,
@@ -158,7 +189,9 @@ export function finalizeExtractedLinkContent({
     wordCount,
     transcriptCharacters,
     transcriptLines,
+    transcriptWordCount,
     transcriptSource: transcriptResolution.source,
+    mediaDurationSeconds,
     video,
     isVideoOnly,
     diagnostics,
