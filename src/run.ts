@@ -1274,6 +1274,8 @@ function buildDetailedLengthPartsForExtracted(extracted: {
   transcriptSource: string | null
   transcriptionProvider: string | null
   mediaDurationSeconds: number | null
+  video: { kind: 'youtube' | 'direct'; url: string } | null
+  isVideoOnly: boolean
   diagnostics: { transcript: { cacheStatus: string } }
 }): string[] {
   const parts: string[] = []
@@ -1347,6 +1349,23 @@ function buildLengthPartsForFinishLine(
   return parts
 }
 
+function inferMediaKindLabelForFinishLine(
+  extracted: Parameters<typeof buildDetailedLengthPartsForExtracted>[0]
+): 'audio' | 'video' | null {
+  if (extracted.siteName === 'YouTube' || /youtube\.com|youtu\.be/i.test(extracted.url)) {
+    return 'video'
+  }
+  if (extracted.isVideoOnly || extracted.video) {
+    return 'video'
+  }
+
+  // For everything else with a transcript, default to audio. This covers podcasts and direct audio files.
+  const hasTranscript =
+    typeof extracted.transcriptCharacters === 'number' && extracted.transcriptCharacters > 0
+  if (!hasTranscript) return null
+  return 'audio'
+}
+
 function buildCompactTranscriptPart(
   extracted: Parameters<typeof buildDetailedLengthPartsForExtracted>[0]
 ): string | null {
@@ -1372,7 +1391,9 @@ function buildCompactTranscriptPart(
 
   const wordLabel = `${formatCompactCount(transcriptWords)} words`
 
-  return `${wordLabel}, ${duration}`
+  const mediaKind = inferMediaKindLabelForFinishLine(extracted)
+
+  return mediaKind ? `${mediaKind} ${wordLabel}, ${duration}` : `${wordLabel}, ${duration}`
 }
 
 export async function runCli(
