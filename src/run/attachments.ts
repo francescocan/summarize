@@ -1,0 +1,188 @@
+import fs from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import type { ModelMessage } from 'ai'
+import mime from 'mime'
+import { buildAssetPromptMessages, type loadLocalAsset } from '../content/asset.js'
+import { formatBytes } from '../tty/format.js'
+
+export type AssetAttachment = Awaited<ReturnType<typeof loadLocalAsset>>['attachment']
+
+export function isUnsupportedAttachmentError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const err = error as { name?: unknown; message?: unknown }
+  const name = typeof err.name === 'string' ? err.name : ''
+  const message = typeof err.message === 'string' ? err.message : ''
+  if (name.toLowerCase().includes('unsupportedfunctionality')) return true
+  if (message.toLowerCase().includes('functionality not supported')) return true
+  return false
+}
+
+export function isTextLikeMediaType(mediaType: string): boolean {
+  const mt = mediaType.toLowerCase()
+  if (mt.startsWith('text/')) return true
+  // Common “text but not text/*” types we want to inline instead of attaching as a file part.
+  return (
+    mt === 'application/json' ||
+    mt === 'application/xml' ||
+    mt === 'application/x-yaml' ||
+    mt === 'application/yaml' ||
+    mt === 'application/toml' ||
+    mt === 'application/rtf' ||
+    mt === 'application/javascript'
+  )
+}
+
+function isArchiveMediaType(mediaType: string): boolean {
+  const mt = mediaType.toLowerCase()
+  return (
+    mt === 'application/zip' ||
+    mt === 'application/x-zip-compressed' ||
+    mt === 'application/x-7z-compressed' ||
+    mt === 'application/x-rar-compressed' ||
+    mt === 'application/x-tar' ||
+    mt === 'application/gzip'
+  )
+}
+
+function attachmentByteLength(attachment: AssetAttachment) {
+  if (attachment.part.type === 'image') {
+    const image = attachment.part.image
+    if (image instanceof Uint8Array) return image.byteLength
+    if (typeof image === 'string') return image.length
+    return null
+  }
+
+  const data = (attachment.part as { data?: unknown }).data
+  if (data instanceof Uint8Array) return data.byteLength
+  if (typeof data === 'string') return data.length
+  return null
+}
+
+export function assertAssetMediaTypeSupported({
+  attachment,
+  sizeLabel,
+}: {
+  attachment: AssetAttachment
+  sizeLabel: string | null
+}) {
+  if (!isArchiveMediaType(attachment.mediaType)) return
+
+  const name = attachment.filename ?? 'file'
+  const bytes = attachmentByteLength(attachment)
+  const size = sizeLabel ?? (typeof bytes === 'number' ? formatBytes(bytes) : null)
+  const details = size ? `${attachment.mediaType}, ${size}` : attachment.mediaType
+
+  throw new Error(
+    `Unsupported file type: ${name} (${details})\n` +
+      `Archive formats (zip/tar/7z/rar) can’t be sent to the model.\n` +
+      `Unzip and summarize a specific file instead (e.g. README.md).`
+  )
+}
+
+export function buildAssetPromptPayload({
+  promptText,
+  attachment,
+  textContent,
+}: {
+  promptText: string
+  attachment: AssetAttachment
+  textContent: { content: string; bytes: number } | null
+}): string | Array<ModelMessage> {
+  if (textContent && attachment.part.type === 'file' && isTextLikeMediaType(attachment.mediaType)) {
+    const header = `File: ${attachment.filename ?? 'unknown'} (${attachment.mediaType})`
+    return `${promptText}\n\n---\n${header}\n\n${textContent.content}`.trim()
+  }
+
+  return buildAssetPromptMessages({ promptText, attachment })
+}
+
+export function getTextContentFromAttachment(
+  attachment: AssetAttachment
+): { content: string; bytes: number } | null {
+  if (attachment.part.type !== 'file' || !isTextLikeMediaType(attachment.mediaType)) {
+    return null
+  }
+  const data = (attachment.part as { data?: unknown }).data
+  if (typeof data === 'string') {
+    return { content: data, bytes: Buffer.byteLength(data, 'utf8') }
+  }
+  if (data instanceof Uint8Array) {
+    return { content: new TextDecoder().decode(data), bytes: data.byteLength }
+  }
+  return { content: '', bytes: 0 }
+}
+
+export function getFileBytesFromAttachment(attachment: AssetAttachment): Uint8Array | null {
+  if (attachment.part.type !== 'file') return null
+  const data = (attachment.part as { data?: unknown }).data
+  return data instanceof Uint8Array ? data : null
+}
+
+function getAttachmentBytes(attachment: AssetAttachment): Uint8Array | null {
+  if (attachment.part.type === 'image') {
+    const image = (attachment.part as { image?: unknown }).image
+    return image instanceof Uint8Array ? image : null
+  }
+  return getFileBytesFromAttachment(attachment)
+}
+
+export async function ensureCliAttachmentPath({
+  sourceKind,
+  sourceLabel,
+  attachment,
+}: {
+  sourceKind: 'file' | 'asset-url'
+  sourceLabel: string
+  attachment: AssetAttachment
+}): Promise<string> {
+  if (sourceKind === 'file') return sourceLabel
+  const bytes = getAttachmentBytes(attachment)
+  if (!bytes) {
+    throw new Error('CLI attachment missing bytes')
+  }
+  const ext =
+    attachment.filename && path.extname(attachment.filename)
+      ? path.extname(attachment.filename)
+      : attachment.mediaType
+        ? `.${mime.getExtension(attachment.mediaType) ?? 'bin'}`
+        : '.bin'
+  const filename = attachment.filename?.trim() || `asset${ext}`
+  const dir = await fs.mkdtemp(path.join(tmpdir(), 'summarize-cli-asset-'))
+  const filePath = path.join(dir, filename)
+  await fs.writeFile(filePath, bytes)
+  return filePath
+}
+
+export function shouldMarkitdownConvertMediaType(mediaType: string): boolean {
+  const mt = mediaType.toLowerCase()
+  if (mt === 'application/pdf') return true
+  if (mt === 'application/rtf') return true
+  if (mt === 'text/html' || mt === 'application/xhtml+xml') return true
+  if (mt === 'application/msword') return true
+  if (mt.startsWith('application/vnd.openxmlformats-officedocument.')) return true
+  if (mt === 'application/vnd.ms-excel') return true
+  if (mt === 'application/vnd.ms-powerpoint') return true
+  return false
+}
+
+export function assertProviderSupportsAttachment({
+  provider,
+  modelId,
+  attachment,
+}: {
+  provider: 'xai' | 'openai' | 'google' | 'anthropic' | 'zai'
+  modelId: string
+  attachment: { part: { type: string }; mediaType: string }
+}) {
+  // xAI via AI SDK currently supports image parts, but not generic file parts (e.g. PDFs).
+  if (
+    provider === 'xai' &&
+    attachment.part.type === 'file' &&
+    !isTextLikeMediaType(attachment.mediaType)
+  ) {
+    throw new Error(
+      `Model ${modelId} does not support attaching files of type ${attachment.mediaType}. Try a different --model (e.g. google/gemini-3-flash-preview).`
+    )
+  }
+}
