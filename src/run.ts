@@ -877,8 +877,7 @@ function buildConciseHelp(): string {
   return [
     'summarize - Summarize web pages, files, and YouTube links.',
     '',
-    'Usage:',
-    '  summarize <url-or-file> [flags]',
+    'Usage: summarize <url-or-file> [flags]',
     '',
     'Examples:',
     '  summarize "https://example.com"',
@@ -1566,8 +1565,9 @@ export async function runCli(
     }
   }
   if (!rawInput) {
-    stdout.write(`${buildConciseHelp()}\n`)
-    return
+    const help = buildConciseHelp()
+    stdout.write(`${help}\n`)
+    throw new Error(help)
   }
 
   const inputTarget = resolveInputTarget(rawInput)
