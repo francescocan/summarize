@@ -88,4 +88,62 @@ const silentStderr = new Writable({
     },
     timeoutMs
   )
+
+  it(
+    '--model free streams when stdout is a TTY',
+    async () => {
+      const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY?.trim() ?? ''
+      if (!OPENROUTER_API_KEY) {
+        it.skip('requires OPENROUTER_API_KEY', () => {})
+        return
+      }
+
+      const home = await fs.mkdtemp(path.join(os.tmpdir(), 'summarize-live-free-stream-'))
+      const env = { ...process.env, HOME: home, OPENROUTER_API_KEY }
+
+      try {
+        const refreshOut = collectStream()
+        await runCli(['refresh-free', '--runs', '0', '--min-params', '0b'], {
+          env,
+          fetch: globalThis.fetch.bind(globalThis),
+          stdout: refreshOut.stream,
+          stderr: silentStderr,
+        })
+        expect(refreshOut.getText()).toMatch(/models\.free/i)
+
+        const out = collectStream()
+        ;(out.stream as unknown as { isTTY?: boolean; columns?: number }).isTTY = true
+        ;(out.stream as unknown as { columns?: number }).columns = 80
+
+        await runCli(
+          [
+            '--timeout',
+            '60s',
+            '--model',
+            'free',
+            '--stream',
+            'on',
+            '--render',
+            'md-live',
+            'https://example.com',
+          ],
+          {
+            env,
+            fetch: globalThis.fetch.bind(globalThis),
+            stdout: out.stream,
+            stderr: silentStderr,
+          }
+        )
+
+        const text = out.getText()
+        expect(text).toContain('\u001b[?2026h')
+        expect(text).toContain('\u001b[?2026l')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (shouldSoftSkipLiveError(message)) return
+        throw error
+      }
+    },
+    timeoutMs
+  )
 })
