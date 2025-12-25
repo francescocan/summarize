@@ -73,8 +73,8 @@ importers:
         specifier: ^9.0.0
         version: 9.0.0
       osc-progress:
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: github:steipete/osc-progress#v0.1.1
+        version: https://codeload.github.com/steipete/osc-progress/tar.gz/6c6fc18e2575a31c43d5abadae670ac3ab3337bd
       oxlint:
         specifier: ^1.35.0
         version: 1.35.0(oxlint-tsgolint@0.10.0)
@@ -1061,8 +1061,9 @@ packages:
     resolution: {integrity: sha512-m0pg2zscbYgWbqRR6ABga5c3sZdEon7bSgjnlXC64kxtxLOyjRcbbUkLj7HFyy/FTD+P2xdBWu8snGhYI0jc4A==}
     engines: {node: '>=20'}
 
-  osc-progress@0.1.0:
-    resolution: {integrity: sha512-9HrEuN+6C/ZsbLI58ZVIOMMfk3K9y1wEf7v1KA9eiChfWoe/HCOVJrRdPhP815tY/CB4wt5snJMfFMEBPZDhng==}
+  osc-progress@https://codeload.github.com/steipete/osc-progress/tar.gz/6c6fc18e2575a31c43d5abadae670ac3ab3337bd:
+    resolution: {tarball: https://codeload.github.com/steipete/osc-progress/tar.gz/6c6fc18e2575a31c43d5abadae670ac3ab3337bd}
+    version: 0.1.1
     engines: {node: '>=20'}
 
   oxlint-tsgolint@0.10.0:
@@ -2338,7 +2339,7 @@ snapshots:
       string-width: 8.1.0
       strip-ansi: 7.1.2
 
-  osc-progress@0.1.0: {}
+  osc-progress@https://codeload.github.com/steipete/osc-progress/tar.gz/6c6fc18e2575a31c43d5abadae670ac3ab3337bd: {}
 
   oxlint-tsgolint@0.10.0:
     optionalDependencies:
