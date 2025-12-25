@@ -106,7 +106,6 @@ export function extractEmbeddedYouTubeUrlFromHtml(
   return null
 }
 
-
 export function sanitizeYoutubeJsonResponse(input: string): string {
   const trimmed = input.trimStart()
   if (trimmed.startsWith(")]}'")) {

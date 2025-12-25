@@ -169,4 +169,25 @@ describe('cli spinner output', () => {
     const visibleErr = applyCarriageReturnAndClearLine(stripCsi(stripOsc(rawErr)))
     expect(visibleErr).not.toMatch(/Fetching website/i)
   })
+
+  it('switches OSC progress to indeterminate for summarizing', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'summarize-spinner-osc-'))
+    const stdout = collectStream({ isTTY: true })
+    const stderr = collectStream({ isTTY: true })
+
+    await runCli(['--timeout', '2s', 'https://example.com'], {
+      env: { HOME: root, TERM_PROGRAM: 'wezterm', TERM: 'xterm-256color' },
+      fetch: vi.fn(async () => {
+        return new Response('<html><body><h1>Example</h1></body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        })
+      }) as unknown as typeof fetch,
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+    })
+
+    const rawErr = stderr.getText()
+    expect(rawErr).toContain('\u001b]9;4;3;;Summarizing')
+  })
 })

@@ -3409,6 +3409,9 @@ export async function runCli(
     recomputeExtractionUi()
     if (progressEnabled) {
       websiteProgress?.stop?.()
+      if (!extractMode) {
+        oscProgress.setIndeterminate('Summarizing')
+      }
       spinner.setText(
         extractMode
           ? `Extracted (${extractedContentSize}${viaSourceLabel})`
