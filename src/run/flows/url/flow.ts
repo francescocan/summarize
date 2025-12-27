@@ -331,10 +331,38 @@ export async function runUrlFlow({
     hooks.setTranscriptionCost(transcriptionCostUsd, transcriptionCostLabel)
 
     if (flags.extractMode) {
+      // Apply transcript→markdown conversion if requested
+      let extractedForOutput = extracted
+      if (markdown.transcriptMarkdownRequested && markdown.convertTranscriptToMarkdown) {
+        if (flags.progressEnabled) {
+          spinner.setText('Converting transcript to markdown…')
+        }
+        const markdownContent = await markdown.convertTranscriptToMarkdown({
+          title: extracted.title,
+          source: extracted.siteName,
+          transcript: extracted.content,
+          timeoutMs: flags.timeoutMs,
+        })
+        extractedForOutput = {
+          ...extracted,
+          content: markdownContent,
+          diagnostics: {
+            ...extracted.diagnostics,
+            markdown: {
+              ...extracted.diagnostics.markdown,
+              requested: true,
+              used: true,
+              provider: 'llm',
+              notes: 'transcript',
+            },
+          },
+        }
+        extractionUi = deriveExtractionUi(extractedForOutput)
+      }
       await outputExtractedUrl({
         ctx,
         url,
-        extracted,
+        extracted: extractedForOutput,
         extractionUi,
         prompt,
         effectiveMarkdownMode: markdown.effectiveMarkdownMode,
