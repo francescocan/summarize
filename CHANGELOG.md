@@ -19,6 +19,7 @@
 - Daemon API: `mode: "auto"` accepts both `url` + extracted page `text`; daemon picks the best pipeline (YouTube/podcasts/media → URL, otherwise prefer visible page text) with a fallback attempt.
 - Core: expose lightweight URL helpers at `@steipete/summarize-core/content/url` (YouTube/Twitter/podcast/direct-media detection).
 - X/Twitter: auto-transcribe tweet videos via `yt-dlp`, using browser cookies (Chrome → Safari → Firefox) when available; set `TWITTER_COOKIE_SOURCE` / `TWITTER_*_PROFILE` to control cookie extraction order.
+- Config: add `prompt` to replace the default summary instructions (same behavior as `--prompt`).
 
 ### Fixed
 
