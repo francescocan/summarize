@@ -577,7 +577,6 @@ describe('transcription/whisper', () => {
   })
 
   it('retries OpenAI decode failures by transcoding via ffmpeg', async () => {
-    const whisper = await importWhisperWithMockFfmpeg()
     let call = 0
     const fetchMock = vi.fn(async () => {
       call += 1
@@ -595,6 +594,7 @@ describe('transcription/whisper', () => {
 
     try {
       vi.stubGlobal('fetch', fetchMock)
+      const whisper = await importWhisperWithMockFfmpeg()
       const result = await whisper.transcribeMediaWithWhisper({
         bytes: new Uint8Array([1, 2, 3]),
         mediaType: 'video/mp4',
