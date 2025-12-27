@@ -27,6 +27,7 @@ export const ProgressKind = {
   BirdDone: 'bird-done',
 } as const
 
+/** Public progress events emitted by link preview fetchers. */
 export type LinkPreviewProgressEvent =
   | { kind: 'fetch-html-start'; url: string }
   | {
@@ -147,6 +148,7 @@ export type TwitterCookieHeaders = {
 
 export type ResolveTwitterCookies = (args: { url: string }) => Promise<TwitterCookieHeaders>
 
+/** Internal dependency bag; prefer createLinkPreviewClient unless you need custom wiring. */
 export interface LinkPreviewDeps {
   fetch: typeof fetch
   scrapeWithFirecrawl: ScrapeWithFirecrawl | null

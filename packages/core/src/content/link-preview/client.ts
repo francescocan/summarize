@@ -9,10 +9,12 @@ import type {
   ScrapeWithFirecrawl,
 } from './deps.js'
 
+/** Public client used by external consumers to fetch link content. */
 export interface LinkPreviewClient {
   fetchLinkContent(url: string, options?: FetchLinkContentOptions): Promise<ExtractedLinkContent>
 }
 
+/** Public options for wiring dependencies into the link preview client. */
 export interface LinkPreviewClientOptions {
   fetch?: typeof fetch
   scrapeWithFirecrawl?: ScrapeWithFirecrawl | null
@@ -27,6 +29,7 @@ export interface LinkPreviewClientOptions {
   onProgress?: ((event: LinkPreviewProgressEvent) => void) | null
 }
 
+/** Public factory for a link preview client with injectable dependencies. */
 export function createLinkPreviewClient(options: LinkPreviewClientOptions = {}): LinkPreviewClient {
   const fetchImpl: typeof fetch =
     options.fetch ?? ((...args: Parameters<typeof fetch>) => globalThis.fetch(...args))
