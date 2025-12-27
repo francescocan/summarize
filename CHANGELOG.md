@@ -40,7 +40,7 @@
 - Daemon: unify URL/page summarization with the CLI flows (single code path; keeps extract/cache/model logic in sync).
 - URL flow: propagate `extracted.truncated` into the prompt context so summaries can reflect partial inputs.
 - Streaming: avoid printing a leading blank line when stdout is not a TTY (keeps cached vs streamed output consistent).
-- Finish line: show “Cached” instead of `0.0s` when summaries are served from cache.
+- Finish line: show “Cached” instead of `0.0s` when summaries are served from cache (CLI + daemon/extension).
 
 ## 0.7.1 - 2025-12-26
 

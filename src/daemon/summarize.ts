@@ -1,5 +1,6 @@
 import { isYouTubeUrl, type ExtractedLinkContent } from '../content/index.js'
 import type { CacheState } from '../cache.js'
+import type { RunMetricsReport } from '../costs.js'
 import { buildFinishLineText, buildLengthPartsForFinishLine } from '../run/finish-line.js'
 import { runUrlFlow } from '../run/flows/url/flow.js'
 import { deriveExtractionUi } from '../run/flows/url/extract.js'
@@ -35,6 +36,56 @@ export type VisiblePageMetrics = {
   details: string | null
   summaryDetailed: string
   detailsDetailed: string | null
+}
+
+function buildDaemonMetrics({
+  elapsedMs,
+  summaryFromCache,
+  label,
+  modelLabel,
+  report,
+  costUsd,
+  compactExtraParts,
+  detailedExtraParts,
+}: {
+  elapsedMs: number
+  summaryFromCache: boolean
+  label: string | null
+  modelLabel: string
+  report: RunMetricsReport
+  costUsd: number | null
+  compactExtraParts: string[] | null
+  detailedExtraParts: string[] | null
+}): VisiblePageMetrics {
+  const elapsedLabel = summaryFromCache ? 'Cached' : null
+  const compact = buildFinishLineText({
+    elapsedMs,
+    elapsedLabel,
+    label,
+    model: modelLabel,
+    report,
+    costUsd,
+    detailed: false,
+    extraParts: compactExtraParts,
+  })
+  const extended = buildFinishLineText({
+    elapsedMs,
+    elapsedLabel,
+    label,
+    model: modelLabel,
+    report,
+    costUsd,
+    detailed: true,
+    extraParts: detailedExtraParts,
+  })
+
+  return {
+    elapsedMs,
+    summary: compact.line,
+    details: compact.details,
+    summaryDetailed: extended.line,
+    detailsDetailed: extended.details,
+  }
 }
 
 function guessSiteName(url: string): string | null {
@@ -112,6 +163,7 @@ export async function streamSummaryForVisiblePage({
 }): Promise<{ usedModel: string; metrics: VisiblePageMetrics }> {
   const startedAt = Date.now()
   let usedModel: string | null = null
+  let summaryFromCache = false
 
   const writeStatus = typeof sink.writeStatus === 'function' ? sink.writeStatus : null
 
@@ -128,6 +180,9 @@ export async function streamSummaryForVisiblePage({
       onModelChosen: (modelId) => {
         usedModel = modelId
         sink.onModelChosen(modelId)
+      },
+      onSummaryCached: (cached) => {
+        summaryFromCache = cached
       },
     },
     runStartedAtMs: startedAt,
@@ -212,34 +267,18 @@ export async function streamSummaryForVisiblePage({
 
   const label = extracted.siteName ?? guessSiteName(extracted.url)
   const modelLabel = usedModel ?? ctx.model.requestedModelLabel
-  const compact = buildFinishLineText({
-    elapsedMs,
-    label,
-    model: modelLabel,
-    report,
-    costUsd,
-    detailed: false,
-    extraParts: null,
-  })
-  const extended = buildFinishLineText({
-    elapsedMs,
-    label,
-    model: modelLabel,
-    report,
-    costUsd,
-    detailed: true,
-    extraParts: null,
-  })
-
   return {
     usedModel: modelLabel,
-    metrics: {
+    metrics: buildDaemonMetrics({
       elapsedMs,
-      summary: compact.line,
-      details: compact.details,
-      summaryDetailed: extended.line,
-      detailsDetailed: extended.details,
-    },
+      summaryFromCache,
+      label,
+      modelLabel,
+      report,
+      costUsd,
+      compactExtraParts: null,
+      detailedExtraParts: null,
+    }),
   }
 }
 
@@ -266,6 +305,7 @@ export async function streamSummaryForUrl({
 }): Promise<{ usedModel: string; metrics: VisiblePageMetrics }> {
   const startedAt = Date.now()
   let usedModel: string | null = null
+  let summaryFromCache = false
   const extractedRef = { value: null as ExtractedLinkContent | null }
 
   const writeStatus = typeof sink.writeStatus === 'function' ? sink.writeStatus : null
@@ -294,6 +334,9 @@ export async function streamSummaryForUrl({
         const msg = formatProgress(event)
         if (msg) writeStatus?.(msg)
       },
+      onSummaryCached: (cached) => {
+        summaryFromCache = cached
+      },
     },
     runStartedAtMs: startedAt,
     stdoutSink: { writeChunk: sink.writeChunk },
@@ -316,33 +359,17 @@ export async function streamSummaryForUrl({
   const compactExtraParts = buildLengthPartsForFinishLine(extracted, false)
   const detailedExtraParts = buildLengthPartsForFinishLine(extracted, true)
 
-  const compact = buildFinishLineText({
-    elapsedMs,
-    label,
-    model: modelLabel,
-    report,
-    costUsd,
-    detailed: false,
-    extraParts: compactExtraParts,
-  })
-  const extended = buildFinishLineText({
-    elapsedMs,
-    label,
-    model: modelLabel,
-    report,
-    costUsd,
-    detailed: true,
-    extraParts: detailedExtraParts,
-  })
-
   return {
     usedModel: modelLabel,
-    metrics: {
+    metrics: buildDaemonMetrics({
       elapsedMs,
-      summary: compact.line,
-      details: compact.details,
-      summaryDetailed: extended.line,
-      detailsDetailed: extended.details,
-    },
+      summaryFromCache,
+      label,
+      modelLabel,
+      report,
+      costUsd,
+      compactExtraParts,
+      detailedExtraParts,
+    }),
   }
 }

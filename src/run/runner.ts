@@ -631,6 +631,7 @@ export async function runCli(
         onModelChosen: null,
         onExtracted: null,
         onLinkPreviewProgress: null,
+        onSummaryCached: null,
         setTranscriptionCost,
         summarizeAsset,
         writeViaFooter,

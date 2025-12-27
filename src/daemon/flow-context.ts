@@ -47,6 +47,7 @@ export type DaemonUrlFlowContextArgs = {
     onModelChosen?: ((modelId: string) => void) | null
     onExtracted?: ((extracted: ExtractedLinkContent) => void) | null
     onLinkPreviewProgress?: ((event: LinkPreviewProgressEvent) => void) | null
+    onSummaryCached?: ((cached: boolean) => void) | null
   } | null
   runStartedAtMs: number
   stdoutSink: TextSink
@@ -324,13 +325,14 @@ export function createDaemonUrlFlowContext(args: DaemonUrlFlowContextArgs): UrlF
       llmCalls: metrics.llmCalls,
     },
     cache,
-    hooks: {
-      onModelChosen: hooks?.onModelChosen ?? null,
-      onExtracted: hooks?.onExtracted ?? null,
-      onLinkPreviewProgress: hooks?.onLinkPreviewProgress ?? null,
-      setTranscriptionCost: metrics.setTranscriptionCost,
-      summarizeAsset: (assetArgs: SummarizeAssetArgs) =>
-        summarizeAssetFlow(assetSummaryContext, assetArgs),
+  hooks: {
+    onModelChosen: hooks?.onModelChosen ?? null,
+    onExtracted: hooks?.onExtracted ?? null,
+    onLinkPreviewProgress: hooks?.onLinkPreviewProgress ?? null,
+    onSummaryCached: hooks?.onSummaryCached ?? null,
+    setTranscriptionCost: metrics.setTranscriptionCost,
+    summarizeAsset: (assetArgs: SummarizeAssetArgs) =>
+      summarizeAssetFlow(assetSummaryContext, assetArgs),
       writeViaFooter: () => {},
       clearProgressForStdout: () => {},
       setClearProgressBeforeStdout: () => {},

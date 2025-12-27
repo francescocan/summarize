@@ -92,6 +92,7 @@ export type UrlFlowHooks = {
   onModelChosen?: ((modelId: string) => void) | null
   onExtracted?: ((extracted: ExtractedLinkContent) => void) | null
   onLinkPreviewProgress?: ((event: LinkPreviewProgressEvent) => void) | null
+  onSummaryCached?: ((cached: boolean) => void) | null
   setTranscriptionCost: (costUsd: number | null, label: string | null) => void
   summarizeAsset: (args: SummarizeAssetArgs) => Promise<void>
   writeViaFooter: (parts: string[]) => void

@@ -76,7 +76,7 @@ describe('daemon summary cache', () => {
         onModelChosen: () => {},
       }
 
-      await streamSummaryForVisiblePage({
+      const result = await streamSummaryForVisiblePage({
         env: { HOME: root, OPENAI_API_KEY: 'test' },
         fetchImpl: globalThis.fetch.bind(globalThis),
         input: {
@@ -93,7 +93,7 @@ describe('daemon summary cache', () => {
         cache: cacheState,
       })
 
-      return out
+      return { out, metrics: result.metrics }
     }
 
     const first = await runOnce()
@@ -101,7 +101,8 @@ describe('daemon summary cache', () => {
 
     const second = await runOnce()
     expect(streamTextMock).toHaveBeenCalledTimes(1)
-    expect(second).toBe(first)
+    expect(second.out).toBe(first.out)
+    expect(second.metrics.summary.split(' · ')[0]).toBe('Cached')
 
     store.close()
     globalFetchSpy.mockRestore()

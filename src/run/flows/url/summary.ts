@@ -364,6 +364,7 @@ export async function summarizeExtractedUrl({
   if (cacheChecked && !summaryFromCache) {
     writeVerbose(io.stderr, flags.verbose, 'cache miss summary', flags.verboseColor)
   }
+  ctx.hooks.onSummaryCached?.(summaryFromCache)
 
   let lastError: unknown = null
   let missingRequiredEnvs = new Set<ModelAttempt['requiredEnv']>()
