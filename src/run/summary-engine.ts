@@ -400,10 +400,10 @@ export function createSummaryEngine(deps: SummaryEngineDeps) {
               if (match) plainFlushedLen = match[0].length
             }
             const lastNl = streamed.lastIndexOf('\n')
-            if (lastNl >= 0 && lastNl + 1 > plainFlushedLen) {
+              if (lastNl >= 0 && lastNl + 1 > plainFlushedLen) {
               if (!cleared) {
                 deps.clearProgressForStdout()
-                deps.stdout.write('\n')
+                if (isRichTty(deps.stdout)) deps.stdout.write('\n')
                 cleared = true
               }
               deps.clearProgressForStdout()
