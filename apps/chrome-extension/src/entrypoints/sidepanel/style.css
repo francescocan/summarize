@@ -614,6 +614,32 @@ button.ghost:hover {
   margin-top: 12px;
 }
 
+.drawerRow #lengthRoot {
+  flex: 0 0 auto;
+  min-width: 140px;
+}
+
+.drawerRow label.length.mini {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.drawerRow label.length.mini .combo {
+  display: flex;
+  gap: 8px;
+}
+
+.drawerRow label.length.mini .pickerTrigger {
+  padding: 6px 10px;
+}
+
+.drawerRow label.length.mini input[type="text"] {
+  width: 104px;
+}
+
 .drawerRow #advanced {
   margin-top: -1px;
 }

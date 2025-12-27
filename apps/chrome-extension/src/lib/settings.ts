@@ -1,10 +1,10 @@
 import {
+  type ColorMode,
+  type ColorScheme,
   defaultColorMode,
   defaultColorScheme,
   normalizeColorMode,
   normalizeColorScheme,
-  type ColorMode,
-  type ColorScheme,
 } from './theme'
 
 export type Settings = {

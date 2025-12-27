@@ -39,7 +39,7 @@ Dev (repo checkout):
 ## Architecture
 
 - **Extension (MV3, WXT)**
-  - Side Panel UI: typography controls (font family + size), model selector, auto/manual toggle.
+  - Side Panel UI: length + typography controls (font family + size), auto/manual toggle.
   - Background service worker: tab + navigation tracking, content extraction, starts summarize runs.
   - Content script: extract readable article text from the **rendered DOM** via Readability; also detect SPA URL changes.
   - Panel page streams SSE directly (MV3 service workers can be flaky for long-lived streams).
@@ -85,7 +85,7 @@ The daemon decides the best pipeline:
 ## Model Selection UX
 
 - Settings:
-  - Model preset: `auto` | `free` | custom string (e.g. `openai/gpt-5-mini`, `openrouter/...`).
+  - Model preset (Options → Advanced): `auto` | `free` | custom string (e.g. `openai/gpt-5-mini`, `openrouter/...`).
   - Length: `short|medium|long|xl|xxl` (or a character target like `20k`).
   - Language: `auto` (match source) or a tag like `en`, `de`, `pt-BR` (or free-form like “German”).
   - Prompt override (advanced): custom instruction prefix (context + content still appended).

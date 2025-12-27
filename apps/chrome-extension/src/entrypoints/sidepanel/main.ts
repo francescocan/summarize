@@ -6,7 +6,7 @@ import { parseSseStream } from '../../lib/sse'
 import { splitStatusPercent } from '../../lib/status'
 import { applyTheme } from '../../lib/theme'
 import { generateToken } from '../../lib/token'
-import { mountSidepanelPickers } from './pickers'
+import { mountSidepanelLengthPicker, mountSidepanelPickers } from './pickers'
 
 type PanelToBg =
   | { type: 'panel:ready' }
@@ -60,6 +60,7 @@ const summarizeBtn = byId<HTMLButtonElement>('summarize')
 const drawerToggleBtn = byId<HTMLButtonElement>('drawerToggle')
 const advancedBtn = byId<HTMLButtonElement>('advanced')
 const autoEl = byId<HTMLInputElement>('auto')
+const lengthRoot = byId<HTMLDivElement>('lengthRoot')
 const pickersRoot = byId<HTMLDivElement>('pickersRoot')
 const sizeEl = byId<HTMLInputElement>('size')
 
@@ -225,7 +226,19 @@ const pickerHandlers = {
   },
 }
 
-const pickers = mountSidepanelPickers(pickersRoot, { ...pickerSettings, ...pickerHandlers })
+const pickers = mountSidepanelPickers(pickersRoot, {
+  scheme: pickerSettings.scheme,
+  mode: pickerSettings.mode,
+  fontFamily: pickerSettings.fontFamily,
+  onSchemeChange: pickerHandlers.onSchemeChange,
+  onModeChange: pickerHandlers.onModeChange,
+  onFontChange: pickerHandlers.onFontChange,
+})
+
+const lengthPicker = mountSidepanelLengthPicker(lengthRoot, {
+  length: pickerSettings.length,
+  onLengthChange: pickerHandlers.onLengthChange,
+})
 
 type PlatformKind = 'mac' | 'windows' | 'linux' | 'other'
 
@@ -439,7 +452,10 @@ function updateControls(state: UiState) {
   autoEl.checked = state.settings.autoSummarize
   if (pickerSettings.length !== state.settings.length) {
     pickerSettings = { ...pickerSettings, length: state.settings.length }
-    pickers.update({ ...pickerSettings, ...pickerHandlers })
+    lengthPicker.update({
+      length: pickerSettings.length,
+      onLengthChange: pickerHandlers.onLengthChange,
+    })
   }
   if (currentSource && state.tab.url && state.tab.url !== currentSource.url && !streaming) {
     currentSource = null
@@ -577,7 +593,18 @@ void (async () => {
     fontFamily: s.fontFamily,
     length: s.length,
   }
-  pickers.update({ ...pickerSettings, ...pickerHandlers })
+  pickers.update({
+    scheme: pickerSettings.scheme,
+    mode: pickerSettings.mode,
+    fontFamily: pickerSettings.fontFamily,
+    onSchemeChange: pickerHandlers.onSchemeChange,
+    onModeChange: pickerHandlers.onModeChange,
+    onFontChange: pickerHandlers.onFontChange,
+  })
+  lengthPicker.update({
+    length: pickerSettings.length,
+    onLengthChange: pickerHandlers.onLengthChange,
+  })
   applyTypography(s.fontFamily, s.fontSize)
   applyTheme({ scheme: s.colorScheme, mode: s.colorMode })
   toggleDrawer(false, { animate: false })

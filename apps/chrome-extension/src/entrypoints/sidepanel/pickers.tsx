@@ -11,17 +11,20 @@ type SidepanelPickerState = {
   scheme: ColorScheme
   mode: ColorMode
   fontFamily: string
-  length: string
 }
 
 type SidepanelPickerHandlers = {
   onSchemeChange: (value: ColorScheme) => void
   onModeChange: (value: ColorMode) => void
   onFontChange: (value: string) => void
-  onLengthChange: (value: string) => void
 }
 
 type SidepanelPickerProps = SidepanelPickerState & SidepanelPickerHandlers
+
+type SidepanelLengthPickerProps = {
+  length: string
+  onLengthChange: (value: string) => void
+}
 
 const lengthPresets = ['short', 'medium', 'long', 'xl', 'xxl', '20k']
 
@@ -111,9 +114,11 @@ function SelectField({
 function LengthField({
   value,
   onValueChange,
+  variant = 'grid',
 }: {
   value: string
   onValueChange: (value: string) => void
+  variant?: 'grid' | 'mini'
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const resolved = useMemo(() => resolvePresetOrCustom({ value, presets: lengthPresets }), [value])
@@ -150,8 +155,8 @@ function LengthField({
   }
 
   return (
-    <label className="length wide" {...api.getLabelProps()}>
-      <span className="pickerTitle">Length</span>
+    <label className={variant === 'mini' ? 'length mini' : 'length wide'} {...api.getLabelProps()}>
+      {variant !== 'mini' ? <span className="pickerTitle">Length</span> : null}
       <div className="combo">
         <div className="picker" {...api.getRootProps()}>
           <button className="pickerTrigger" {...api.getTriggerProps()}>
@@ -226,7 +231,6 @@ function SidepanelPickers(props: SidepanelPickerProps) {
 
   return (
     <>
-      <LengthField value={props.length} onValueChange={props.onLengthChange} />
       <SelectField
         label="Scheme"
         labelClassName="scheme"
@@ -277,6 +281,26 @@ export function mountSidepanelPickers(root: HTMLElement, props: SidepanelPickerP
     update(next: SidepanelPickerProps) {
       current = next
       renderPickers()
+    },
+  }
+}
+
+function SidepanelLengthPicker(props: SidepanelLengthPickerProps) {
+  return <LengthField variant="mini" value={props.length} onValueChange={props.onLengthChange} />
+}
+
+export function mountSidepanelLengthPicker(root: HTMLElement, props: SidepanelLengthPickerProps) {
+  let current = props
+  const renderPicker = () => {
+    render(<SidepanelLengthPicker {...current} />, root)
+  }
+
+  renderPicker()
+
+  return {
+    update(next: SidepanelLengthPickerProps) {
+      current = next
+      renderPicker()
     },
   }
 }
