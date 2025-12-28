@@ -1,45 +1,36 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  resolveDaemonOutputLanguage,
-  resolveDaemonSummaryLength,
+  resolveDaemonFirecrawlMode,
+  resolveDaemonMarkdownMode,
+  resolveDaemonMaxOutputTokens,
+  resolveDaemonPreprocessMode,
+  resolveDaemonRetries,
+  resolveDaemonTimeoutMs,
+  resolveDaemonYoutubeMode,
 } from '../src/daemon/request-settings.js'
-import { resolveOutputLanguage } from '../src/language.js'
 
 describe('daemon/request-settings', () => {
-  it('defaults length to xl', () => {
-    const resolved = resolveDaemonSummaryLength(undefined)
-    expect(resolved.lengthArg).toEqual({ kind: 'preset', preset: 'xl' })
-    expect(resolved.summaryLength).toBe('xl')
+  it('parses mode overrides when valid', () => {
+    expect(resolveDaemonFirecrawlMode('always')).toBe('always')
+    expect(resolveDaemonMarkdownMode('llm')).toBe('llm')
+    expect(resolveDaemonPreprocessMode('auto')).toBe('auto')
+    expect(resolveDaemonYoutubeMode('no-auto')).toBe('no-auto')
   })
 
-  it('maps preset lengths', () => {
-    const resolved = resolveDaemonSummaryLength('short')
-    expect(resolved.lengthArg).toEqual({ kind: 'preset', preset: 'short' })
-    expect(resolved.summaryLength).toBe('short')
+  it('returns null for invalid modes', () => {
+    expect(resolveDaemonFirecrawlMode('nope')).toBeNull()
+    expect(resolveDaemonMarkdownMode('markdown')).toBeNull()
+    expect(resolveDaemonPreprocessMode('yes')).toBeNull()
+    expect(resolveDaemonYoutubeMode('v2')).toBeNull()
   })
 
-  it('supports custom character lengths', () => {
-    const resolved = resolveDaemonSummaryLength('20k')
-    expect(resolved.lengthArg).toEqual({ kind: 'chars', maxCharacters: 20000 })
-    expect(resolved.summaryLength).toEqual({ maxCharacters: 20000 })
-  })
-
-  it('keeps fallback language when unset', () => {
-    const fallback = resolveOutputLanguage('de')
-    const resolved = resolveDaemonOutputLanguage({ raw: '', fallback })
-    expect(resolved).toEqual(fallback)
-  })
-
-  it('overrides language when set', () => {
-    const fallback = resolveOutputLanguage('de')
-    const resolved = resolveDaemonOutputLanguage({ raw: 'en', fallback })
-    expect(resolved).toEqual(resolveOutputLanguage('en'))
-  })
-
-  it('supports auto language override', () => {
-    const fallback = resolveOutputLanguage('de')
-    const resolved = resolveDaemonOutputLanguage({ raw: 'auto', fallback })
-    expect(resolved).toEqual({ kind: 'auto' })
+  it('parses timeout, retries, and max output tokens', () => {
+    expect(resolveDaemonTimeoutMs('90s')).toBe(90_000)
+    expect(resolveDaemonTimeoutMs(15_000)).toBe(15_000)
+    expect(resolveDaemonRetries('3')).toBe(3)
+    expect(resolveDaemonRetries(2)).toBe(2)
+    expect(resolveDaemonMaxOutputTokens('2k')).toBe(2000)
+    expect(resolveDaemonMaxOutputTokens(512)).toBe(512)
   })
 })

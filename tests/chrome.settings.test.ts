@@ -58,4 +58,40 @@ describe('chrome/settings', () => {
     expect(loaded.length).toBe('20k')
     expect(loaded.language).toBe('en')
   })
+
+  it('normalizes advanced overrides on save', async () => {
+    await saveSettings({
+      ...defaultSettings,
+      advancedOverrides: true,
+      requestMode: 'URL',
+      firecrawlMode: 'Always',
+      markdownMode: 'LLM',
+      preprocessMode: 'AUTO',
+      youtubeMode: 'No-Auto',
+      timeout: ' 90s ',
+      retries: 3.9,
+      maxOutputTokens: ' 2k ',
+    })
+
+    const raw = storage.settings as Record<string, unknown>
+    expect(raw.advancedOverrides).toBe(true)
+    expect(raw.requestMode).toBe('url')
+    expect(raw.firecrawlMode).toBe('always')
+    expect(raw.markdownMode).toBe('llm')
+    expect(raw.preprocessMode).toBe('auto')
+    expect(raw.youtubeMode).toBe('no-auto')
+    expect(raw.timeout).toBe('90s')
+    expect(raw.retries).toBe(3)
+    expect(raw.maxOutputTokens).toBe('2k')
+
+    const loaded = await loadSettings()
+    expect(loaded.requestMode).toBe('url')
+    expect(loaded.firecrawlMode).toBe('always')
+    expect(loaded.markdownMode).toBe('llm')
+    expect(loaded.preprocessMode).toBe('auto')
+    expect(loaded.youtubeMode).toBe('no-auto')
+    expect(loaded.timeout).toBe('90s')
+    expect(loaded.retries).toBe(3)
+    expect(loaded.maxOutputTokens).toBe('2k')
+  })
 })
