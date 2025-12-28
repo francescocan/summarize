@@ -1,15 +1,15 @@
 import MarkdownIt from 'markdown-it'
 
-import { mergeStreamingChunk } from '../../../../../src/shared/streaming-merge.js'
 import { buildIdleSubtitle } from '../../lib/header'
 import { buildMetricsParts, buildMetricsTokens } from '../../lib/metrics'
 import { defaultSettings, loadSettings, patchSettings } from '../../lib/settings'
-import { parseSseStream } from '../../lib/sse'
-import { splitStatusPercent } from '../../lib/status'
 import { applyTheme } from '../../lib/theme'
 import { generateToken } from '../../lib/token'
 import { mountCheckbox } from '../../ui/zag-checkbox'
+import { createHeaderController } from './header-controller'
 import { mountSidepanelLengthPicker, mountSidepanelPickers } from './pickers'
+import { createStreamController } from './stream-controller'
+import type { PanelState, RunStart, UiState } from './types'
 
 type PanelToBg =
   | { type: 'panel:ready' }
@@ -20,22 +20,6 @@ type PanelToBg =
   | { type: 'panel:setAuto'; value: boolean }
   | { type: 'panel:setLength'; value: string }
   | { type: 'panel:openOptions' }
-
-type UiState = {
-  panelOpen: boolean
-  daemon: { ok: boolean; authed: boolean; error?: string }
-  tab: { url: string | null; title: string | null }
-  settings: { autoSummarize: boolean; model: string; length: string; tokenPresent: boolean }
-  status: string
-}
-
-type RunStart = {
-  id: string
-  url: string
-  title: string | null
-  model: string
-  reason: string
-}
 
 type BgToPanel =
   | { type: 'ui:state'; state: UiState }
@@ -74,34 +58,29 @@ const md = new MarkdownIt({
   breaks: false,
 })
 
-function updateHeaderOffset() {
-  const height = headerEl.getBoundingClientRect().height
-  document.documentElement.style.setProperty('--header-height', `${height}px`)
-}
-
-updateHeaderOffset()
-window.addEventListener('resize', updateHeaderOffset)
-
-let markdown = ''
-let renderQueued = 0
-let currentState: UiState | null = null
-let currentSource: { url: string; title: string | null } | null = null
-let streamController: AbortController | null = null
-let streamedAnyNonWhitespace = false
-let rememberedUrl = false
-let streaming = false
-let showProgress = false
-let summaryFromCache: boolean | null = null
-let baseTitle = 'Summarize'
-let baseSubtitle = ''
-let statusText = ''
-let lastMeta: { inputSummary: string | null; model: string | null; modelLabel: string | null } = {
-  inputSummary: null,
-  model: null,
-  modelLabel: null,
+const panelState: PanelState = {
+  ui: null,
+  currentSource: null,
+  lastMeta: { inputSummary: null, model: null, modelLabel: null },
+  summaryFromCache: null,
+  streaming: false,
 }
 let drawerAnimation: Animation | null = null
 let autoValue = false
+
+const headerController = createHeaderController({
+  headerEl,
+  titleEl,
+  subtitleEl,
+  progressFillEl,
+  getState: () => ({
+    streaming: panelState.streaming,
+    summaryFromCache: panelState.summaryFromCache,
+  }),
+})
+
+headerController.updateHeaderOffset()
+window.addEventListener('resize', headerController.updateHeaderOffset)
 
 function normalizeUrl(value: string) {
   try {
@@ -136,20 +115,20 @@ function canSyncTabUrl(url: string | null | undefined): url is string {
 }
 
 async function syncWithActiveTab() {
-  if (!currentSource) return
+  if (!panelState.currentSource) return
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     if (!tab?.url || !canSyncTabUrl(tab.url)) return
-    if (!urlsMatch(tab.url, currentSource.url)) {
-      currentSource = null
+    if (!urlsMatch(tab.url, panelState.currentSource.url)) {
+      panelState.currentSource = null
       resetSummaryView()
-      setBaseTitle(tab.title || tab.url || 'Summarize')
-      setBaseSubtitle('')
+      headerController.setBaseTitle(tab.title || tab.url || 'Summarize')
+      headerController.setBaseSubtitle('')
       return
     }
-    if (tab.title && tab.title !== currentSource.title) {
-      currentSource = { ...currentSource, title: tab.title }
-      setBaseTitle(tab.title)
+    if (tab.title && tab.title !== panelState.currentSource.title) {
+      panelState.currentSource = { ...panelState.currentSource, title: tab.title }
+      headerController.setBaseTitle(tab.title)
     }
   } catch {
     // ignore
@@ -157,124 +136,40 @@ async function syncWithActiveTab() {
 }
 
 function resetSummaryView() {
-  markdown = ''
   renderEl.innerHTML = ''
   metricsEl.textContent = ''
   metricsEl.classList.add('hidden')
   metricsEl.removeAttribute('data-details')
   metricsEl.removeAttribute('title')
-  summaryFromCache = null
-  streamedAnyNonWhitespace = false
-  rememberedUrl = false
-}
-
-function setBaseSubtitle(text: string) {
-  baseSubtitle = text
-  updateHeader()
-}
-
-function setBaseTitle(text: string) {
-  const next = text.trim() || 'Summarize'
-  baseTitle = next
-  updateHeader()
-}
-
-function setStatus(text: string) {
-  statusText = text
-  const trimmed = text.trim()
-  const isError =
-    trimmed.length > 0 &&
-    (trimmed.toLowerCase().startsWith('error:') || trimmed.toLowerCase().includes(' error'))
-  const split = splitStatusPercent(text)
-  if (split.percent && summaryFromCache !== true) {
-    armProgress()
-  } else if (trimmed && summaryFromCache !== true && !isError) {
-    armProgress()
-  } else if (!trimmed && !streaming) {
-    stopProgress()
-  }
-  updateHeader()
-}
-
-function updateHeader() {
-  const trimmed = statusText.trim()
-  const showStatus = trimmed.length > 0
-  const split = showStatus
-    ? splitStatusPercent(trimmed)
-    : { text: '', percent: null as string | null }
-  const percentNum = split.percent ? Number.parseInt(split.percent, 10) : null
-  const isError =
-    showStatus &&
-    (trimmed.toLowerCase().startsWith('error:') || trimmed.toLowerCase().includes(' error'))
-  const isRunning = showProgress && !isError
-  const shouldShowStatus = showStatus && (!streaming || !baseSubtitle)
-
-  titleEl.textContent = baseTitle
-  headerEl.classList.toggle('isError', isError)
-  headerEl.classList.toggle('isRunning', isRunning)
-  headerEl.classList.toggle('isIndeterminate', isRunning && percentNum == null)
-
-  if (
-    !isError &&
-    percentNum != null &&
-    Number.isFinite(percentNum) &&
-    percentNum >= 0 &&
-    percentNum <= 100
-  ) {
-    headerEl.style.setProperty('--progress', `${percentNum}%`)
-  } else {
-    headerEl.style.setProperty('--progress', '0%')
-  }
-
-  progressFillEl.style.display = isRunning || isError ? '' : 'none'
-  subtitleEl.textContent = isError
-    ? split.text || trimmed
-    : shouldShowStatus
-      ? split.text || trimmed
-      : baseSubtitle
-}
-
-function armProgress() {
-  if (summaryFromCache === true) return
-  if (showProgress) return
-  showProgress = true
-  updateHeader()
-}
-
-function stopProgress() {
-  if (!showProgress) return
-  showProgress = false
-  updateHeader()
+  metricsRenderState.summary = null
+  metricsRenderState.shortened = false
+  panelState.summaryFromCache = null
 }
 
 window.addEventListener('error', (event) => {
   const message =
     event.error instanceof Error ? event.error.stack || event.error.message : event.message
-  setStatus(`Error: ${message}`)
+  headerController.setStatus(`Error: ${message}`)
 })
 
 window.addEventListener('unhandledrejection', (event) => {
   const reason = (event as PromiseRejectionEvent).reason
   const message = reason instanceof Error ? reason.stack || reason.message : String(reason)
-  setStatus(`Error: ${message}`)
+  headerController.setStatus(`Error: ${message}`)
 })
 
-function queueRender() {
-  if (renderQueued) return
-  renderQueued = window.setTimeout(() => {
-    renderQueued = 0
-    try {
-      renderEl.innerHTML = md.render(markdown)
-    } catch (err) {
-      const message = err instanceof Error ? err.stack || err.message : String(err)
-      setStatus(`Error: ${message}`)
-      return
-    }
-    for (const a of Array.from(renderEl.querySelectorAll('a'))) {
-      a.setAttribute('target', '_blank')
-      a.setAttribute('rel', 'noopener noreferrer')
-    }
-  }, 80)
+function renderMarkdown(markdown: string) {
+  try {
+    renderEl.innerHTML = md.render(markdown)
+  } catch (err) {
+    const message = err instanceof Error ? err.stack || err.message : String(err)
+    headerController.setStatus(`Error: ${message}`)
+    return
+  }
+  for (const a of Array.from(renderEl.querySelectorAll('a'))) {
+    a.setAttribute('target', '_blank')
+    a.setAttribute('rel', 'noopener noreferrer')
+  }
 }
 
 function getLineHeightPx(el: HTMLElement, styles?: CSSStyleDeclaration): number {
@@ -373,7 +268,7 @@ function scheduleMetricsFitCheck() {
     if (!metricsRenderState.summary) return
     const parts = buildMetricsParts({
       summary: metricsRenderState.summary,
-      inputSummary: lastMeta.inputSummary,
+      inputSummary: panelState.lastMeta.inputSummary,
     })
     if (parts.length === 0) return
     const fullText = parts.join(' · ')
@@ -393,8 +288,8 @@ function renderMetricsSummary(summary: string, options?: { shortenOpenRouter?: b
   metricsEl.replaceChildren()
   const tokens = buildMetricsTokens({
     summary,
-    inputSummary: lastMeta.inputSummary,
-    sourceUrl: currentSource?.url ?? null,
+    inputSummary: panelState.lastMeta.inputSummary,
+    sourceUrl: panelState.currentSource?.url ?? null,
     shortenOpenRouter: options?.shortenOpenRouter ?? false,
   })
 
@@ -422,10 +317,6 @@ function renderMetricsSummary(summary: string, options?: { shortenOpenRouter?: b
     }
     metricsEl.append(document.createTextNode(token.text))
   })
-}
-
-function mergeStreamText(current: string, incoming: string): string {
-  return mergeStreamingChunk(current, incoming).next
 }
 
 function applyTypography(fontFamily: string, fontSize: number) {
@@ -515,6 +406,68 @@ function friendlyFetchError(err: unknown, context: string): string {
   }
   return `${context}: ${message}`
 }
+
+const streamController = createStreamController({
+  getToken: async () => (await loadSettings()).token,
+  onReset: () => {
+    renderEl.innerHTML = ''
+    metricsEl.textContent = ''
+    metricsEl.classList.add('hidden')
+    metricsEl.removeAttribute('data-details')
+    metricsEl.removeAttribute('title')
+    metricsRenderState.summary = null
+    metricsRenderState.shortened = false
+    panelState.summaryFromCache = null
+    panelState.lastMeta = { inputSummary: null, model: null, modelLabel: null }
+  },
+  onStatus: (text) => headerController.setStatus(text),
+  onBaseTitle: (text) => headerController.setBaseTitle(text),
+  onBaseSubtitle: (text) => headerController.setBaseSubtitle(text),
+  onStreamStateChange: (value) => {
+    panelState.streaming = value
+    if (!value) headerController.stopProgress()
+  },
+  onRememberUrl: (url) => send({ type: 'panel:rememberUrl', url }),
+  onMeta: (data) => {
+    panelState.lastMeta = {
+      model: typeof data.model === 'string' ? data.model : panelState.lastMeta.model,
+      modelLabel:
+        typeof data.modelLabel === 'string' ? data.modelLabel : panelState.lastMeta.modelLabel,
+      inputSummary:
+        typeof data.inputSummary === 'string'
+          ? data.inputSummary
+          : panelState.lastMeta.inputSummary,
+    }
+    headerController.setBaseSubtitle(
+      buildIdleSubtitle({
+        inputSummary: panelState.lastMeta.inputSummary,
+        modelLabel: panelState.lastMeta.modelLabel,
+        model: panelState.lastMeta.model,
+      })
+    )
+  },
+  onSummaryFromCache: (value) => {
+    panelState.summaryFromCache = value
+    if (value === true) {
+      headerController.stopProgress()
+    } else if (value === false && panelState.streaming) {
+      headerController.armProgress()
+    }
+  },
+  onMetrics: (summary) => {
+    metricsRenderState.summary = summary
+    metricsRenderState.shortened = false
+    renderMetricsSummary(summary)
+    metricsEl.removeAttribute('title')
+    metricsEl.removeAttribute('data-details')
+    metricsEl.classList.remove('hidden')
+    ensureMetricsObserver()
+    scheduleMetricsFitCheck()
+  },
+  onRender: renderMarkdown,
+  onSyncWithActiveTab: syncWithActiveTab,
+  onError: (err) => friendlyFetchError(err, 'Stream failed'),
+})
 
 async function ensureToken(): Promise<string> {
   const settings = await loadSettings()
@@ -633,8 +586,8 @@ function wireSetupButtons({
   const daemonCmd = `summarize daemon install --token ${token}`
 
   const flashCopied = () => {
-    setStatus('Copied')
-    setTimeout(() => setStatus(currentState?.status ?? ''), 800)
+    headerController.setStatus('Copied')
+    setTimeout(() => headerController.setStatus(panelState.ui?.status ?? ''), 800)
   }
 
   setupEl.querySelector<HTMLButtonElement>('#copy-npm')?.addEventListener('click', () => {
@@ -738,44 +691,47 @@ function updateControls(state: UiState) {
       onLengthChange: pickerHandlers.onLengthChange,
     })
   }
-  if (currentSource) {
-    if (state.tab.url && !urlsMatch(state.tab.url, currentSource.url)) {
-      currentSource = null
-      if (streamController) {
-        streamController.abort()
-        streamController = null
-      }
-      streaming = false
-      stopProgress()
+  if (panelState.currentSource) {
+    if (state.tab.url && !urlsMatch(state.tab.url, panelState.currentSource.url)) {
+      panelState.currentSource = null
+      streamController.abort()
+      panelState.streaming = false
+      headerController.stopProgress()
       resetSummaryView()
-    } else if (state.tab.title && state.tab.title !== currentSource.title) {
-      currentSource = { ...currentSource, title: state.tab.title }
-      setBaseTitle(state.tab.title)
+    } else if (state.tab.title && state.tab.title !== panelState.currentSource.title) {
+      panelState.currentSource = { ...panelState.currentSource, title: state.tab.title }
+      headerController.setBaseTitle(state.tab.title)
     }
   }
-  if (!currentSource) {
-    lastMeta = { inputSummary: null, model: null, modelLabel: null }
-    setBaseTitle(state.tab.title || state.tab.url || 'Summarize')
-    setBaseSubtitle('')
+  if (!panelState.currentSource) {
+    panelState.lastMeta = { inputSummary: null, model: null, modelLabel: null }
+    headerController.setBaseTitle(state.tab.title || state.tab.url || 'Summarize')
+    headerController.setBaseSubtitle('')
   }
-  if (!streaming || state.status.trim().length > 0) setStatus(state.status)
+  if (!panelState.streaming || state.status.trim().length > 0) {
+    headerController.setStatus(state.status)
+  }
   maybeShowSetup(state)
 }
 
 function handleBgMessage(msg: BgToPanel) {
   switch (msg.type) {
     case 'ui:state':
-      currentState = msg.state
+      panelState.ui = msg.state
       updateControls(msg.state)
       return
     case 'ui:status':
-      if (!streaming || msg.status.trim().length > 0) setStatus(msg.status)
+      if (!panelState.streaming || msg.status.trim().length > 0) {
+        headerController.setStatus(msg.status)
+      }
       return
     case 'run:error':
-      setStatus(`Error: ${msg.message}`)
+      headerController.setStatus(`Error: ${msg.message}`)
       return
     case 'run:start':
-      void startStream(msg.run)
+      panelState.currentSource = { url: msg.run.url, title: msg.run.title }
+      panelState.lastMeta = { inputSummary: null, model: null, modelLabel: null }
+      void streamController.start(msg.run)
       return
   }
 }
@@ -948,131 +904,3 @@ window.addEventListener('keydown', (event) => {
 window.addEventListener('beforeunload', () => {
   send({ type: 'panel:closed' })
 })
-
-async function startStream(run: RunStart) {
-  const token = (await loadSettings()).token.trim()
-  if (!token) {
-    setStatus('Setup required (missing token)')
-    return
-  }
-
-  streamController?.abort()
-  const controller = new AbortController()
-  streamController = controller
-  streaming = true
-  streamedAnyNonWhitespace = false
-  rememberedUrl = false
-  currentSource = { url: run.url, title: run.title }
-  summaryFromCache = null
-
-  markdown = ''
-  renderEl.innerHTML = ''
-  metricsEl.textContent = ''
-  metricsEl.classList.add('hidden')
-  metricsEl.removeAttribute('data-details')
-  metricsEl.removeAttribute('title')
-  lastMeta = { inputSummary: null, model: null, modelLabel: null }
-  setBaseTitle(run.title || run.url)
-  setBaseSubtitle('')
-  setStatus('Connecting…')
-
-  try {
-    const res = await fetch(`http://127.0.0.1:8787/v1/summarize/${run.id}/events`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
-    })
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-    if (!res.body) throw new Error('Missing stream body')
-
-    setStatus('Summarizing…')
-
-    for await (const msg of parseSseStream(res.body)) {
-      if (controller.signal.aborted) return
-
-      if (msg.event === 'chunk') {
-        const data = JSON.parse(msg.data) as { text: string }
-        const merged = mergeStreamText(markdown, data.text)
-        if (merged !== markdown) {
-          markdown = merged
-          queueRender()
-        }
-
-        if (!streamedAnyNonWhitespace && data.text.trim().length > 0) {
-          streamedAnyNonWhitespace = true
-          if (!rememberedUrl) {
-            rememberedUrl = true
-            send({ type: 'panel:rememberUrl', url: run.url })
-          }
-        }
-      } else if (msg.event === 'meta') {
-        const data = JSON.parse(msg.data) as {
-          model?: string | null
-          modelLabel?: string | null
-          inputSummary?: string | null
-          summaryFromCache?: boolean | null
-        }
-        lastMeta = {
-          model: typeof data.model === 'string' ? data.model : lastMeta.model,
-          modelLabel: typeof data.modelLabel === 'string' ? data.modelLabel : lastMeta.modelLabel,
-          inputSummary:
-            typeof data.inputSummary === 'string' ? data.inputSummary : lastMeta.inputSummary,
-        }
-        if (typeof data.summaryFromCache === 'boolean') {
-          summaryFromCache = data.summaryFromCache
-          if (summaryFromCache) {
-            stopProgress()
-          } else if (streaming && !showProgress) {
-            armProgress()
-          }
-        }
-        setBaseSubtitle(
-          buildIdleSubtitle({
-            inputSummary: lastMeta.inputSummary,
-            modelLabel: lastMeta.modelLabel,
-            model: lastMeta.model,
-          })
-        )
-      } else if (msg.event === 'status') {
-        const data = JSON.parse(msg.data) as { text: string }
-        if (!streamedAnyNonWhitespace) setStatus(data.text)
-      } else if (msg.event === 'metrics') {
-        const data = JSON.parse(msg.data) as {
-          summary: string
-          details: string | null
-          summaryDetailed: string
-          detailsDetailed: string | null
-          elapsedMs: number
-        }
-        metricsRenderState.summary = data.summary
-        metricsRenderState.shortened = false
-        renderMetricsSummary(data.summary)
-        metricsEl.removeAttribute('title')
-        metricsEl.removeAttribute('data-details')
-        metricsEl.classList.remove('hidden')
-        ensureMetricsObserver()
-        scheduleMetricsFitCheck()
-      } else if (msg.event === 'error') {
-        const data = JSON.parse(msg.data) as { message: string }
-        throw new Error(data.message)
-      } else if (msg.event === 'done') {
-        break
-      }
-    }
-
-    if (!streamedAnyNonWhitespace) {
-      throw new Error('Model returned no output.')
-    }
-
-    setStatus('')
-  } catch (err) {
-    if (controller.signal.aborted) return
-    const message = friendlyFetchError(err, 'Stream failed')
-    setStatus(`Error: ${message}`)
-  } finally {
-    if (streamController === controller) {
-      streaming = false
-      stopProgress()
-      void syncWithActiveTab()
-    }
-  }
-}
