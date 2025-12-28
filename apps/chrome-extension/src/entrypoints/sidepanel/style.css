@@ -867,11 +867,11 @@ select {
 }
 
 .pickerPositioner[data-picker="length"] .pickerContent {
-  min-width: min(476px, 100%);
+  min-width: min(286px, 100%);
 }
 
 .pickerPositioner[data-picker="length"] {
-  width: min(max(476px, calc(var(--reference-width, 0px) + 166px)), var(--available-width, 100vw));
+  width: min(max(286px, calc(var(--reference-width, 0px) + 100px)), var(--available-width, 100vw));
   max-width: var(--available-width, 100vw);
 }
 
