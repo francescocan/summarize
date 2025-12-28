@@ -49,12 +49,16 @@ async function openOptionsWindow() {
   try {
     if (chrome.windows?.create) {
       const current = await chrome.windows.getCurrent()
-      const maxWidth = current.width ? Math.max(optionsWindowMin.width, current.width - optionsWindowMargin) : null
+      const maxWidth = current.width
+        ? Math.max(optionsWindowMin.width, current.width - optionsWindowMargin)
+        : null
       const maxHeight = current.height
         ? Math.max(optionsWindowMin.height, current.height - optionsWindowMargin)
         : null
       const width = maxWidth ? Math.min(optionsWindowSize.width, maxWidth) : optionsWindowSize.width
-      const height = maxHeight ? Math.min(optionsWindowSize.height, maxHeight) : optionsWindowSize.height
+      const height = maxHeight
+        ? Math.min(optionsWindowSize.height, maxHeight)
+        : optionsWindowSize.height
       await chrome.windows.create({ url, type: 'popup', width, height })
       return
     }

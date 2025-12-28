@@ -434,6 +434,16 @@ label > span {
   font-size: 12px;
 }
 
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.hint code {
+  font-family: var(--mono);
+}
+
 input[type="text"],
 input[type="number"],
 textarea,

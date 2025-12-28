@@ -82,10 +82,10 @@ Notes:
 - “Auto” mode summarizes on navigation (incl. SPAs); otherwise use the button.
 - The daemon is localhost-only and requires a shared token.
 - Daemon autostart: macOS (launchd), Linux (systemd user), Windows (Scheduled Task).
+- Tip: configure `free` via `summarize refresh-free` (requires `OPENROUTER_API_KEY`). Add `--set-default` to also set model=`free`, then set Model to `free` in extension settings.
 
 - Docs: `docs/chrome-extension.md`
 - Extension package/dev notes: `apps/chrome-extension/README.md`
-- Side Panel includes a “Docs” link: `https://summarize.sh`
 
 Troubleshooting:
 

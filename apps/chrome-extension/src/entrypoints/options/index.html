@@ -77,6 +77,11 @@
               <datalist id="modelPresets">
                 <option value="auto" label="Auto"></option>
               </datalist>
+              <div class="hint">
+                Tip: configure “free” models via <code>summarize refresh-free</code> (needs <code>OPENROUTER_API_KEY</code>). Writes
+                <code>~/.summarize/config.json</code> (updates <code>models.free</code>). Add <code>--set-default</code> to also set
+                your default model to <code>free</code>.
+              </div>
             </label>
             <label>
               <span>Prompt override</span>

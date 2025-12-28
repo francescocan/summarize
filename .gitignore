@@ -9,3 +9,4 @@ coverage
 .cache
 .output
 .wxt
+apps/chrome-extension/test-results

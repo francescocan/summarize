@@ -70,7 +70,10 @@ async function refreshModelPresets(token: string) {
     const res = await fetch('http://127.0.0.1:8787/v1/models', {
       headers: { Authorization: `Bearer ${trimmed}` },
     })
-    if (!res.ok) return
+    if (!res.ok) {
+      setDefaultModelPresets()
+      return
+    }
     const json = (await res.json()) as unknown
     if (!json || typeof json !== 'object') return
     const obj = json as Record<string, unknown>
@@ -184,6 +187,17 @@ tokenEl.addEventListener('input', () => {
     void refreshModelPresets(tokenEl.value)
   }, 350)
 })
+
+let modelRefreshAt = 0
+const refreshModelsIfStale = () => {
+  const now = Date.now()
+  if (now - modelRefreshAt < 1500) return
+  modelRefreshAt = now
+  void refreshModelPresets(tokenEl.value)
+}
+
+modelEl.addEventListener('focus', refreshModelsIfStale)
+modelEl.addEventListener('pointerdown', refreshModelsIfStale)
 
 languagePresetEl.addEventListener('change', () => {
   languageCustomEl.hidden = languagePresetEl.value !== 'custom'
