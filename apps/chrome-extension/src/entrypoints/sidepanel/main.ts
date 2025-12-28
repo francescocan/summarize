@@ -114,11 +114,13 @@ function updateHeader() {
   const isError =
     showStatus &&
     (trimmed.toLowerCase().startsWith('error:') || trimmed.toLowerCase().includes(' error'))
+  const isRunning = streaming || (showStatus && !isError)
+  const shouldShowStatus = showStatus && (!streaming || !baseSubtitle)
 
   titleEl.textContent = baseTitle
   headerEl.classList.toggle('isError', isError)
-  headerEl.classList.toggle('isRunning', showStatus && !isError)
-  headerEl.classList.toggle('isIndeterminate', showStatus && !isError && percentNum == null)
+  headerEl.classList.toggle('isRunning', isRunning && !isError)
+  headerEl.classList.toggle('isIndeterminate', isRunning && !isError && percentNum == null)
 
   if (
     !isError &&
@@ -132,8 +134,12 @@ function updateHeader() {
     headerEl.style.setProperty('--progress', '0%')
   }
 
-  progressFillEl.style.display = showStatus ? '' : 'none'
-  subtitleEl.textContent = showStatus ? split.text || trimmed : baseSubtitle
+  progressFillEl.style.display = isRunning || isError ? '' : 'none'
+  subtitleEl.textContent = isError
+    ? split.text || trimmed
+    : shouldShowStatus
+      ? split.text || trimmed
+      : baseSubtitle
 }
 
 window.addEventListener('error', (event) => {
@@ -485,7 +491,7 @@ function updateControls(state: UiState) {
     setBaseTitle(state.tab.title || state.tab.url || 'Summarize')
     setBaseSubtitle('')
   }
-  setStatus(state.status)
+  if (!streaming || state.status.trim().length > 0) setStatus(state.status)
   maybeShowSetup(state)
 }
 
@@ -496,7 +502,7 @@ function handleBgMessage(msg: BgToPanel) {
       updateControls(msg.state)
       return
     case 'ui:status':
-      setStatus(msg.status)
+      if (!streaming || msg.status.trim().length > 0) setStatus(msg.status)
       return
     case 'run:error':
       setStatus(`Error: ${msg.message}`)
