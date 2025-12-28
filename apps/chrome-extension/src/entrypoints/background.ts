@@ -401,6 +401,9 @@ export default defineBackground(() => {
     if (typeof changeInfo.title === 'string' || typeof changeInfo.url === 'string') {
       void emitState('')
     }
+    if (typeof changeInfo.url === 'string') {
+      void summarizeActiveTab('tab-url-change')
+    }
     if (changeInfo.status === 'complete') {
       void emitState('')
       void summarizeActiveTab('tab-updated')

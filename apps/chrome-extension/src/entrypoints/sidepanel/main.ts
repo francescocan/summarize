@@ -92,6 +92,18 @@ let lastMeta: { inputSummary: string | null; model: string | null; modelLabel: s
 }
 let drawerAnimation: Animation | null = null
 
+function resetSummaryView() {
+  markdown = ''
+  renderEl.innerHTML = ''
+  metricsEl.textContent = ''
+  metricsEl.classList.add('hidden')
+  metricsEl.removeAttribute('data-details')
+  metricsEl.removeAttribute('title')
+  summaryFromCache = null
+  streamedAnyNonWhitespace = false
+  rememberedUrl = false
+}
+
 function setBaseSubtitle(text: string) {
   baseSubtitle = text
   updateHeader()
@@ -594,8 +606,9 @@ function updateControls(state: UiState) {
     })
   }
   if (currentSource && !streaming) {
-    if (state.tab.url && state.tab.url !== currentSource.url) {
+    if (!state.tab.url || state.tab.url !== currentSource.url) {
       currentSource = null
+      resetSummaryView()
     } else if (state.tab.title && state.tab.title !== currentSource.title) {
       currentSource = { ...currentSource, title: state.tab.title }
       setBaseTitle(state.tab.title)

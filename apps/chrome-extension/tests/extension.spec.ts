@@ -124,6 +124,20 @@ async function seedSettings(harness: ExtensionHarness, settings: Record<string, 
   }, settings)
 }
 
+async function getActiveTabUrl(harness: ExtensionHarness) {
+  const background =
+    harness.context.serviceWorkers()[0] ??
+    (await harness.context.waitForEvent('serviceworker', { timeout: 15_000 }))
+  return background.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    return tab?.url ?? null
+  })
+}
+
+async function waitForActiveTabUrl(harness: ExtensionHarness, expectedPrefix: string) {
+  await expect.poll(async () => (await getActiveTabUrl(harness)) ?? '').toContain(expectedPrefix)
+}
+
 async function openExtensionPage(
   harness: ExtensionHarness,
   pathname: string,
@@ -242,6 +256,7 @@ test('sidepanel updates title after stream when tab title changes', async () => 
   const harness = await launchExtension()
 
   try {
+    await seedSettings(harness, { token: 'test-token' })
     const page = await openExtensionPage(harness, 'sidepanel.html', '#title')
     const sseBody = [
       'event: meta',
@@ -292,6 +307,58 @@ test('sidepanel updates title after stream when tab title changes', async () => 
   }
 })
 
+test('sidepanel clears summary when tab url changes', async () => {
+  const harness = await launchExtension()
+
+  try {
+    await seedSettings(harness, { token: 'test-token' })
+    const page = await openExtensionPage(harness, 'sidepanel.html', '#title')
+    const sseBody = [
+      'event: chunk',
+      'data: {"text":"Hello world"}',
+      '',
+      'event: done',
+      'data: {}',
+      '',
+    ].join('\n')
+
+    await page.route('http://127.0.0.1:8787/v1/summarize/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+        body: sseBody,
+      })
+    })
+
+    await sendBgMessage(harness, {
+      type: 'run:start',
+      run: {
+        id: 'run-2',
+        url: 'https://example.com/old',
+        title: 'Old Title',
+        model: 'auto',
+        reason: 'manual',
+      },
+    })
+
+    await expect(page.locator('#render')).toContainText('Hello world')
+
+    await sendBgMessage(harness, {
+      type: 'ui:state',
+      state: buildUiState({
+        tab: { url: 'https://example.com/new', title: 'New Title' },
+        status: '',
+      }),
+    })
+
+    await expect(page.locator('#title')).toHaveText('New Title')
+    await expect(page.locator('#render')).toBeEmpty()
+    assertNoErrors(harness)
+  } finally {
+    await closeExtension(harness.context, harness.userDataDir)
+  }
+})
+
 test('auto summarize reruns after panel reopen', async () => {
   const harness = await launchExtension()
 
@@ -330,9 +397,11 @@ test('auto summarize reruns after panel reopen', async () => {
     const contentPage = await harness.context.newPage()
     await contentPage.goto('https://example.com', { waitUntil: 'domcontentloaded' })
     await contentPage.bringToFront()
+    await waitForActiveTabUrl(harness, 'https://example.com')
 
     const panel = await openExtensionPage(harness, 'sidepanel.html', '#title')
     await contentPage.bringToFront()
+    await waitForActiveTabUrl(harness, 'https://example.com')
     await sendPanelMessage(panel, { type: 'panel:ready' })
 
     await expect.poll(() => summarizeCalls).toBe(1)
