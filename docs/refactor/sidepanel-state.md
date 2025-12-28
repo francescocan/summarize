@@ -7,19 +7,19 @@ summary: "Refactor guide: explicit side panel UI state machine."
 Goal: explicit state machine for side panel UI (idle/connecting/streaming/error).
 
 ## Steps
-- [ ] Inventory current state flags.
+- [x] Inventory current state flags.
   - Files: `apps/chrome-extension/src/entrypoints/sidepanel/main.ts`, `.../types.ts`.
-- [ ] Define `PanelState` union.
+- [x] Define `PanelState` union.
   - `idle | setup | connecting | streaming | error`.
-- [ ] Create reducer or state transition helpers.
+- [x] Create reducer or state transition helpers.
   - Pure functions with explicit transitions.
-- [ ] Replace ad‑hoc booleans.
+- [x] Replace ad‑hoc booleans.
   - Wire UI to `PanelState` changes only.
-- [ ] Update stream controller callbacks.
+- [x] Update stream controller callbacks.
   - Emit explicit transitions.
-- [ ] Add unit tests.
+- [x] Add unit tests.
   - Validate transitions for errors + aborts.
-- [ ] Verify UI behavior.
+- [x] Verify UI behavior.
   - Manual: connect, stream, error, recover.
 
 ## Done When

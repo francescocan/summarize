@@ -14,10 +14,13 @@ export type RunStart = {
   reason: string
 }
 
+export type PanelPhase = 'idle' | 'setup' | 'connecting' | 'streaming' | 'error'
+
 export type PanelState = {
   ui: UiState | null
   currentSource: { url: string; title: string | null } | null
   lastMeta: { inputSummary: string | null; model: string | null; modelLabel: string | null }
   summaryFromCache: boolean | null
-  streaming: boolean
+  phase: PanelPhase
+  error: string | null
 }

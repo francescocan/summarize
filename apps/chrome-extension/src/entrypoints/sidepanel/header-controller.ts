@@ -1,7 +1,8 @@
 import { splitStatusPercent } from '../../lib/status'
+import type { PanelPhase } from './types'
 
 type HeaderState = {
-  streaming: boolean
+  phase: PanelPhase
   summaryFromCache: boolean | null
 }
 
@@ -33,7 +34,8 @@ export function createHeaderController({
   let showProgress = false
 
   const updateHeader = () => {
-    const { streaming } = getState()
+    const { phase } = getState()
+    const isStreaming = phase === 'connecting' || phase === 'streaming'
     const trimmed = statusText.trim()
     const showStatus = trimmed.length > 0
     const split = showStatus
@@ -44,7 +46,7 @@ export function createHeaderController({
       showStatus &&
       (trimmed.toLowerCase().startsWith('error:') || trimmed.toLowerCase().includes(' error'))
     const isRunning = showProgress && !isError
-    const shouldShowStatus = showStatus && (!streaming || !baseSubtitle)
+    const shouldShowStatus = showStatus && (!isStreaming || !baseSubtitle)
 
     titleEl.textContent = baseTitle
     headerEl.classList.toggle('isError', isError)
@@ -99,7 +101,7 @@ export function createHeaderController({
       armProgress()
     } else if (trimmed && summaryFromCache !== true && !isError) {
       armProgress()
-    } else if (!trimmed && !getState().streaming) {
+    } else if (!trimmed && !(phase === 'connecting' || phase === 'streaming')) {
       stopProgress()
     }
     updateHeader()

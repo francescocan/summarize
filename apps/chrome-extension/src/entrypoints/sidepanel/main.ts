@@ -9,7 +9,7 @@ import { mountCheckbox } from '../../ui/zag-checkbox'
 import { createHeaderController } from './header-controller'
 import { mountSidepanelLengthPicker, mountSidepanelPickers } from './pickers'
 import { createStreamController } from './stream-controller'
-import type { PanelState, RunStart, UiState } from './types'
+import type { PanelPhase, PanelState, RunStart, UiState } from './types'
 
 type PanelToBg =
   | { type: 'panel:ready' }
@@ -63,10 +63,21 @@ const panelState: PanelState = {
   currentSource: null,
   lastMeta: { inputSummary: null, model: null, modelLabel: null },
   summaryFromCache: null,
-  streaming: false,
+  phase: 'idle',
+  error: null,
 }
 let drawerAnimation: Animation | null = null
 let autoValue = false
+
+const isStreaming = () => panelState.phase === 'connecting' || panelState.phase === 'streaming'
+
+const setPhase = (phase: PanelPhase, opts?: { error?: string | null }) => {
+  panelState.phase = phase
+  panelState.error = phase === 'error' ? (opts?.error ?? panelState.error) : null
+  if (phase !== 'connecting' && phase !== 'streaming') {
+    headerController.stopProgress()
+  }
+}
 
 const headerController = createHeaderController({
   headerEl,
@@ -74,7 +85,7 @@ const headerController = createHeaderController({
   subtitleEl,
   progressFillEl,
   getState: () => ({
-    streaming: panelState.streaming,
+    phase: panelState.phase,
     summaryFromCache: panelState.summaryFromCache,
   }),
 })
@@ -121,6 +132,7 @@ async function syncWithActiveTab() {
     if (!tab?.url || !canSyncTabUrl(tab.url)) return
     if (!urlsMatch(tab.url, panelState.currentSource.url)) {
       panelState.currentSource = null
+      setPhase('idle')
       resetSummaryView()
       headerController.setBaseTitle(tab.title || tab.url || 'Summarize')
       headerController.setBaseSubtitle('')
@@ -150,12 +162,14 @@ window.addEventListener('error', (event) => {
   const message =
     event.error instanceof Error ? event.error.stack || event.error.message : event.message
   headerController.setStatus(`Error: ${message}`)
+  setPhase('error', { error: message })
 })
 
 window.addEventListener('unhandledrejection', (event) => {
   const reason = (event as PromiseRejectionEvent).reason
   const message = reason instanceof Error ? reason.stack || reason.message : String(reason)
   headerController.setStatus(`Error: ${message}`)
+  setPhase('error', { error: message })
 })
 
 function renderMarkdown(markdown: string) {
@@ -423,9 +437,8 @@ const streamController = createStreamController({
   onStatus: (text) => headerController.setStatus(text),
   onBaseTitle: (text) => headerController.setBaseTitle(text),
   onBaseSubtitle: (text) => headerController.setBaseSubtitle(text),
-  onStreamStateChange: (value) => {
-    panelState.streaming = value
-    if (!value) headerController.stopProgress()
+  onPhaseChange: (phase) => {
+    setPhase(phase)
   },
   onRememberUrl: (url) => send({ type: 'panel:rememberUrl', url }),
   onMeta: (data) => {
@@ -450,7 +463,7 @@ const streamController = createStreamController({
     panelState.summaryFromCache = value
     if (value === true) {
       headerController.stopProgress()
-    } else if (value === false && panelState.streaming) {
+    } else if (value === false && isStreaming()) {
       headerController.armProgress()
     }
   },
@@ -646,13 +659,13 @@ function renderSetup(token: string) {
   wireSetupButtons({ token })
 }
 
-function maybeShowSetup(state: UiState) {
+function maybeShowSetup(state: UiState): boolean {
   if (!state.settings.tokenPresent) {
     void (async () => {
       const token = await ensureToken()
       renderSetup(token)
     })()
-    return
+    return true
   }
   if (!state.daemon.ok || !state.daemon.authed) {
     setupEl.classList.remove('hidden')
@@ -668,9 +681,10 @@ function maybeShowSetup(state: UiState) {
       `
       wireSetupButtons({ token: t, showTroubleshooting: true })
     })
-    return
+    return true
   }
   setupEl.classList.add('hidden')
+  return false
 }
 
 function updateControls(state: UiState) {
@@ -695,8 +709,6 @@ function updateControls(state: UiState) {
     if (state.tab.url && !urlsMatch(state.tab.url, panelState.currentSource.url)) {
       panelState.currentSource = null
       streamController.abort()
-      panelState.streaming = false
-      headerController.stopProgress()
       resetSummaryView()
     } else if (state.tab.title && state.tab.title !== panelState.currentSource.title) {
       panelState.currentSource = { ...panelState.currentSource, title: state.tab.title }
@@ -708,10 +720,15 @@ function updateControls(state: UiState) {
     headerController.setBaseTitle(state.tab.title || state.tab.url || 'Summarize')
     headerController.setBaseSubtitle('')
   }
-  if (!panelState.streaming || state.status.trim().length > 0) {
+  if (!isStreaming() || state.status.trim().length > 0) {
     headerController.setStatus(state.status)
   }
-  maybeShowSetup(state)
+  const showingSetup = maybeShowSetup(state)
+  if (showingSetup && panelState.phase !== 'setup') {
+    setPhase('setup')
+  } else if (!showingSetup && panelState.phase === 'setup') {
+    setPhase('idle')
+  }
 }
 
 function handleBgMessage(msg: BgToPanel) {
@@ -721,12 +738,13 @@ function handleBgMessage(msg: BgToPanel) {
       updateControls(msg.state)
       return
     case 'ui:status':
-      if (!panelState.streaming || msg.status.trim().length > 0) {
+      if (!isStreaming() || msg.status.trim().length > 0) {
         headerController.setStatus(msg.status)
       }
       return
     case 'run:error':
       headerController.setStatus(`Error: ${msg.message}`)
+      setPhase('error', { error: msg.message })
       return
     case 'run:start':
       panelState.currentSource = { url: msg.run.url, title: msg.run.title }

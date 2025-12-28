@@ -1,7 +1,7 @@
 import { type SseMetaData, parseSseEvent } from '../../../../../src/shared/sse-events.js'
 import { mergeStreamingChunk } from '../../../../../src/shared/streaming-merge.js'
 import { parseSseStream } from '../../lib/sse'
-import type { RunStart } from './types'
+import type { PanelPhase, RunStart } from './types'
 
 export type StreamController = {
   start: (run: RunStart) => Promise<void>
@@ -15,7 +15,7 @@ export function createStreamController({
   onStatus,
   onBaseTitle,
   onBaseSubtitle,
-  onStreamStateChange,
+  onPhaseChange,
   onRememberUrl,
   onMeta,
   onSummaryFromCache,
@@ -30,7 +30,7 @@ export function createStreamController({
   onStatus: (text: string) => void
   onBaseTitle: (text: string) => void
   onBaseSubtitle: (text: string) => void
-  onStreamStateChange: (streaming: boolean) => void
+  onPhaseChange: (phase: PanelPhase) => void
   onRememberUrl: (url: string) => void
   onMeta: (meta: SseMetaData) => void
   onSummaryFromCache: (value: boolean | null) => void
@@ -61,7 +61,7 @@ export function createStreamController({
     controller = null
     if (streaming) {
       streaming = false
-      onStreamStateChange(false)
+      onPhaseChange('idle')
     }
   }
 
@@ -79,7 +79,7 @@ export function createStreamController({
     streamedAnyNonWhitespace = false
     rememberedUrl = false
     markdown = ''
-    onStreamStateChange(true)
+    onPhaseChange('connecting')
     onSummaryFromCache(null)
     onReset()
 
@@ -99,6 +99,7 @@ export function createStreamController({
       if (!res.body) throw new Error('Missing stream body')
 
       onStatus('Summarizing…')
+      onPhaseChange('streaming')
 
       for await (const msg of parseSseStream(res.body)) {
         if (nextController.signal.aborted) return
@@ -145,10 +146,13 @@ export function createStreamController({
       if (nextController.signal.aborted) return
       const message = onError ? onError(err) : err instanceof Error ? err.message : String(err)
       onStatus(`Error: ${message}`)
+      onPhaseChange('error')
     } finally {
       if (controller === nextController) {
         streaming = false
-        onStreamStateChange(false)
+        if (!nextController.signal.aborted) {
+          onPhaseChange('idle')
+        }
         await onSyncWithActiveTab()
       }
     }
