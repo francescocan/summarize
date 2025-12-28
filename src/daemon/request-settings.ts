@@ -1,5 +1,12 @@
-import type { FirecrawlMode, LengthArg, MarkdownMode, PreprocessMode, YoutubeMode } from '../flags.js'
+import type {
+  FirecrawlMode,
+  LengthArg,
+  MarkdownMode,
+  PreprocessMode,
+  YoutubeMode,
+} from '../flags.js'
 import {
+  parseDurationMs,
   parseFirecrawlMode,
   parseLengthArg,
   parseMarkdownMode,
@@ -7,7 +14,6 @@ import {
   parsePreprocessMode,
   parseRetriesArg,
   parseYoutubeMode,
-  parseDurationMs,
 } from '../flags.js'
 import type { OutputLanguage } from '../language.js'
 import { resolveOutputLanguage } from '../language.js'

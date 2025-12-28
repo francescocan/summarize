@@ -47,7 +47,7 @@ export type DaemonUrlFlowContextArgs = {
   lengthRaw: unknown
   languageRaw: unknown
   maxExtractCharacters: number | null
-  overrides: DaemonRunOverrides
+  overrides?: DaemonRunOverrides | null
   hooks?: {
     onModelChosen?: ((modelId: string) => void) | null
     onExtracted?: ((extracted: ExtractedLinkContent) => void) | null
@@ -139,7 +139,16 @@ export function createDaemonUrlFlowContext(args: DaemonUrlFlowContextArgs): UrlF
     requestedModel.kind === 'fixed' ? requestedModel : null
 
   const { lengthArg } = resolveDaemonSummaryLength(lengthRaw)
-  const maxOutputTokensArg = overrides.maxOutputTokensArg
+  const resolvedOverrides: DaemonRunOverrides = overrides ?? {
+    firecrawlMode: null,
+    markdownMode: null,
+    preprocessMode: null,
+    youtubeMode: null,
+    timeoutMs: null,
+    retries: null,
+    maxOutputTokensArg: null,
+  }
+  const maxOutputTokensArg = resolvedOverrides.maxOutputTokensArg
   const desiredOutputTokens = resolveDesiredOutputTokens({ lengthArg, maxOutputTokensArg })
 
   const metrics = createRunMetrics({ env: envForRun, fetchImpl, maxOutputTokensArg })
@@ -147,12 +156,12 @@ export function createDaemonUrlFlowContext(args: DaemonUrlFlowContextArgs): UrlF
   const stdout = createWritableFromTextSink(stdoutSink)
   const stderr = process.stderr
 
-  const timeoutMs = overrides.timeoutMs ?? 120_000
-  const retries = overrides.retries ?? 1
-  const firecrawlMode = overrides.firecrawlMode ?? 'off'
-  const markdownMode = overrides.markdownMode ?? 'readability'
-  const preprocessMode = overrides.preprocessMode ?? 'off'
-  const youtubeMode = overrides.youtubeMode ?? 'auto'
+  const timeoutMs = resolvedOverrides.timeoutMs ?? 120_000
+  const retries = resolvedOverrides.retries ?? 1
+  const firecrawlMode = resolvedOverrides.firecrawlMode ?? 'off'
+  const markdownMode = resolvedOverrides.markdownMode ?? 'readability'
+  const preprocessMode = resolvedOverrides.preprocessMode ?? 'off'
+  const youtubeMode = resolvedOverrides.youtubeMode ?? 'auto'
 
   const summaryEngine = createSummaryEngine({
     env: envForRun,
