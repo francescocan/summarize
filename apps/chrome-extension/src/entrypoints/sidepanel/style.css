@@ -671,7 +671,9 @@ label.length.mini .lengthCustomRow input[type="text"] {
 
 label.length.mini .presetsTrigger {
   width: auto;
-  min-width: 92px;
+  min-width: 72px;
+  padding: 6px 8px;
+  font-size: 11px;
 }
 
 .drawer .combo {

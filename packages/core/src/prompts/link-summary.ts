@@ -6,32 +6,32 @@ import { buildInstructions, buildTaggedPrompt, type PromptOverrides } from './fo
 const SUMMARY_LENGTH_DIRECTIVES: Record<SummaryLength, { guidance: string; formatting: string }> = {
   short: {
     guidance:
-      'Write a tight paragraph (2–3 sentences) that delivers the primary claim plus one high-signal supporting detail.',
-    formatting: 'Output a single paragraph with normal sentences; avoid headings or bullet lists.',
+      'Write a tight summary in 2–3 sentences that delivers the primary claim plus one high-signal supporting detail.',
+    formatting: 'Return a single short paragraph.',
   },
   medium: {
     guidance:
-      'Write two short paragraphs covering the core claim in the first paragraph and the most important supporting evidence, data points, or implications in the second.',
+      'Write two short paragraphs covering the core claim in the first paragraph and the most important supporting evidence or data points in the second.',
     formatting:
-      'Each paragraph should contain 2–3 sentences. Separate paragraphs with a blank line. Do not use bullet lists or headings.',
+      'Each paragraph should contain 2–3 sentences. Separate paragraphs with a blank line.',
   },
   long: {
     guidance:
-      'Write three short paragraphs that summarize the text in order of importance: (1) core claim and scope, (2) key supporting facts or events, (3) other notable details or conclusions stated in the source. Use Markdown lists if they improve scanability.',
+      'Write three short paragraphs that summarize the text in order of importance: (1) core claim and scope, (2) key supporting facts or events, (3) other notable details or conclusions stated in the source.',
     formatting:
-      'Each paragraph should contain 2–4 sentences. Separate paragraphs with a blank line. Bullet lists are allowed for enumerations; headings are optional.',
+      'Each paragraph should contain 2–4 sentences. Separate paragraphs with a blank line.',
   },
   xl: {
     guidance:
-      'Write a detailed summary in 4–6 short paragraphs. Focus on what the text says (facts, events, arguments) and include concrete numbers or quotes when present. Use headings or bullet lists when they improve scanability, but avoid fixed templates.',
+      'Write a detailed summary in 4–6 short paragraphs. Focus on what the text says (facts, events, arguments) and include concrete numbers or quotes when present.',
     formatting:
-      'Use Markdown paragraphs separated by single blank lines. Headings and bullet lists are allowed when helpful.',
+      'Use Markdown paragraphs separated by single blank lines.',
   },
   xxl: {
     guidance:
-      'Write a comprehensive summary in 6–10 short paragraphs. Cover background, main points, evidence, and stated outcomes in the source text; avoid adding implications or recommendations unless explicitly stated. Use headings or bullet lists when they improve scanability, but avoid fixed templates.',
+      'Write a comprehensive summary in 6–10 short paragraphs. Cover background, main points, evidence, and stated outcomes in the source text; avoid adding implications or recommendations unless explicitly stated.',
     formatting:
-      'Use Markdown paragraphs separated by single blank lines. Headings and bullet lists are allowed when helpful.',
+      'Use Markdown paragraphs separated by single blank lines.',
   },
 }
 
@@ -185,7 +185,7 @@ export function buildLinkSummaryPrompt({
     'Do not use emojis, disclaimers, or speculation.',
     'Write in direct, factual language.',
     'Format the answer in Markdown and obey the length-specific formatting above.',
-    'Prefer Markdown structure (short headings or bullet lists) when it improves scanability; avoid rigid templates.',
+    'Use short paragraphs; use bullet lists only when they improve scanability; avoid rigid templates.',
     'Base everything strictly on the provided content and never invent details.',
     shareGuidance,
   ]

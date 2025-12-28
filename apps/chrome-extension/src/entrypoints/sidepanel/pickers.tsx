@@ -217,6 +217,8 @@ function LengthField({
                 value={customValue}
                 onInput={(event) => setCustomValue(event.currentTarget.value)}
                 onBlur={commitCustom}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowDown') {
                     event.preventDefault()

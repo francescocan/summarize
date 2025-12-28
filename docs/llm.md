@@ -68,7 +68,7 @@ installed, auto mode can use local CLI models when `cli.enabled` is set (see `do
   - This is *soft guidance* to the model (no hard truncation).
   - Minimum numeric value: 50 chars.
   - Default: `long`.
-  - Output format is Markdown; longer presets may use headings or bullet lists when they improve scanability.
+  - Output format is Markdown; use short paragraphs and only add bullets when they improve scanability.
 - `--max-output-tokens <count>`
   - Hard cap for output tokens (optional).
   - If omitted, no max token parameter is sent (provider default).

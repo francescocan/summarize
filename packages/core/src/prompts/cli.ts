@@ -42,7 +42,7 @@ export function buildPathSummaryPrompt({
     `Summarize the ${kindLabel} at the path below.`,
     'Be factual and do not invent details.',
     'Format the answer in Markdown.',
-    'Prefer Markdown structure (short headings or bullet lists) when it improves scanability; avoid rigid templates.',
+    'Use short paragraphs; use bullet lists only when they improve scanability; avoid rigid templates.',
     'Do not use emojis.',
     maxCharactersLine,
     formatOutputLanguageInstruction(outputLanguage ?? { kind: 'auto' }),
