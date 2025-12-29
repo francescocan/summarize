@@ -156,7 +156,7 @@ export function resolveOutputLanguage(raw: string | null | undefined): OutputLan
 
 export function formatOutputLanguageInstruction(language: OutputLanguage): string {
   if (language.kind === 'auto') {
-    return 'Write the answer in the primary language of the source content.'
+    return "Match the dominant source language. If you can't confidently detect it, use English."
   }
   return `Write the answer in ${language.label}.`
 }

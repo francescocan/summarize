@@ -11,6 +11,7 @@
 - Chrome extension: split advanced overrides into a two-column grid for quicker scanning.
 - Chrome Side Panel: add Chat mode with metrics bar (advanced toggle, default on). Thanks @dougvk.
 - Chrome Side Panel chat: send full transcript + summary context (skip summary for oversized transcripts), include extraction metadata, add jump-to-latest, and improve auto-scroll + loading affordances.
+- Daemon CLI: retry health/auth checks on restart/install to avoid false negatives during startup.
 - Daemon logging: optional JSON log file with rotation; extension toggle can send full input/output for debugging.
 - PDF inputs: send PDFs directly to Anthropic/OpenAI/Gemini when supported (skip markitdown preprocessing).
 - Daemon: add `/v1/chat` and `extractOnly` support to reuse URL extraction for chat.
@@ -18,6 +19,7 @@
 ### Fixes
 
 - Auto model selection: OpenRouter fallback now resolves provider-specific ids (including dash/dot slug normalization) and skips fallback when no unique match.
+- Language auto: default to English when detection is uncertain.
 - Chrome extension: hide hover tooltips when the returned text looks like an error page.
 - Chrome extension: avoid hover tooltip mismatches on recycled anchors; add hover debug logging when extended logging is enabled.
 - Chrome extension: only show hover tooltips after the first streamed chunk (no “Summarizing…” popover).

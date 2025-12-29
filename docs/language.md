@@ -6,7 +6,7 @@ read_when:
 
 # Output language
 
-By default, `summarize` writes the summary in the **same language as the source content** (`--language auto`).
+By default, `summarize` writes the summary in the **same language as the source content** (`--language auto`). If language detection is uncertain, it falls back to English.
 
 This affects the language of the generated summary text (not extraction/transcription).
 
