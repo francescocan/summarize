@@ -6,6 +6,7 @@ export type ExtractedPage = {
   text: string
   truncated: boolean
   mediaDurationSeconds?: number | null
+  media?: { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean } | null
 }
 
 export function buildDaemonRequestBody({

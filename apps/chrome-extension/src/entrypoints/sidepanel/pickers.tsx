@@ -30,6 +30,13 @@ type SidepanelLengthPickerProps = {
   onLengthChange: (value: string) => void
 }
 
+type SourcePickerProps = {
+  value: 'page' | 'video'
+  visible: boolean
+  videoLabel?: string
+  onValueChange: (value: 'page' | 'video') => void
+}
+
 const lengthPresets = ['short', 'medium', 'long', 'xl', 'xxl', '20k']
 const MIN_CUSTOM_LENGTH_CHARS = 10
 const LENGTH_COUNT_PATTERN = /^(?<value>\d+(?:\.\d+)?)(?<unit>k|m)?$/i
@@ -413,6 +420,63 @@ function SidepanelLengthPicker(props: SidepanelLengthPickerProps) {
   return <LengthField variant="mini" value={props.length} onValueChange={props.onLengthChange} />
 }
 
+function SourcePicker(props: SourcePickerProps) {
+  if (!props.visible) return null
+  const sourceItems: SelectItem[] = [
+    { value: 'page', label: 'Page' },
+    { value: 'video', label: props.videoLabel ?? 'Video' },
+  ]
+  const portalRoot = getOverlayRoot()
+  const api = useZagSelect({
+    id: 'source',
+    items: sourceItems,
+    value: props.value,
+    onValueChange: (next) => {
+      props.onValueChange(next === 'video' ? 'video' : 'page')
+    },
+  })
+
+  const selectedValue = api.value[0] ?? ''
+  const selectedLabel =
+    api.valueAsString || sourceItems.find((item) => item.value === selectedValue)?.label || 'Page'
+
+  const positionerProps = api.getPositionerProps()
+  const positionerStyle = {
+    ...(positionerProps.style ?? {}),
+    position: 'fixed',
+    zIndex: 9999,
+  }
+  if ('width' in positionerStyle) delete positionerStyle.width
+  if ('maxWidth' in positionerStyle) delete positionerStyle.maxWidth
+  const content = (
+    <div className="pickerPositioner" data-picker="source" {...positionerProps} style={positionerStyle}>
+      <div className="pickerContent" {...api.getContentProps()}>
+        <div className="pickerList" {...api.getListProps()}>
+          {sourceItems.map((item) => (
+            <button key={item.value} className="pickerOption" {...api.getItemProps({ item })}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="picker sourcePicker" {...api.getRootProps()}>
+      <button
+        className="pickerTrigger sourcePickerTrigger"
+        aria-label="Input mode"
+        {...api.getTriggerProps()}
+      >
+        <span className="sourcePickerLabel">{selectedLabel}</span>
+      </button>
+      {portalRoot ? createPortal(content, portalRoot) : content}
+      <select className="pickerHidden" {...api.getHiddenSelectProps()} />
+    </div>
+  )
+}
+
 export function mountSidepanelLengthPicker(root: HTMLElement, props: SidepanelLengthPickerProps) {
   let current = props
   const renderPicker = () => {
@@ -423,6 +487,22 @@ export function mountSidepanelLengthPicker(root: HTMLElement, props: SidepanelLe
 
   return {
     update(next: SidepanelLengthPickerProps) {
+      current = next
+      renderPicker()
+    },
+  }
+}
+
+export function mountSourcePicker(root: HTMLElement, props: SourcePickerProps) {
+  let current = props
+  const renderPicker = () => {
+    render(<SourcePicker {...current} />, root)
+  }
+
+  renderPicker()
+
+  return {
+    update(next: SourcePickerProps) {
       current = next
       renderPicker()
     },

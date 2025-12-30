@@ -12,13 +12,13 @@ import { mountCheckbox } from '../../ui/zag-checkbox'
 import { ChatController } from './chat-controller'
 import { type ChatHistoryLimits, compactChatHistory } from './chat-state'
 import { createHeaderController } from './header-controller'
-import { mountSidepanelLengthPicker, mountSidepanelPickers } from './pickers'
+import { mountSidepanelLengthPicker, mountSidepanelPickers, mountSourcePicker } from './pickers'
 import { createStreamController } from './stream-controller'
 import type { ChatMessage, PanelPhase, PanelState, RunStart, UiState } from './types'
 
 type PanelToBg =
   | { type: 'panel:ready' }
-  | { type: 'panel:summarize'; refresh?: boolean }
+  | { type: 'panel:summarize'; refresh?: boolean; inputMode?: 'page' | 'video' }
   | {
       type: 'panel:chat'
       messages: Array<{ role: 'user' | 'assistant'; content: string }>
@@ -68,6 +68,7 @@ const chatMetricsSlotEl = byId<HTMLDivElement>('chatMetricsSlot')
 const chatDockEl = byId<HTMLDivElement>('chatDock')
 
 const summarizeBtn = byId<HTMLButtonElement>('summarize')
+const sourcePickerRoot = byId<HTMLElement>('sourcePickerRoot')
 const drawerToggleBtn = byId<HTMLButtonElement>('drawerToggle')
 const refreshBtn = byId<HTMLButtonElement>('refresh')
 const advancedBtn = byId<HTMLButtonElement>('advanced')
@@ -129,6 +130,8 @@ let activeTabUrl: string | null = null
 let lastStreamError: string | null = null
 let lastChatError: string | null = null
 let lastAction: 'summarize' | 'chat' | null = null
+let inputMode: 'page' | 'video' = 'page'
+let mediaAvailable = false
 
 const chatController = new ChatController({
   messagesEl: chatMessagesEl,
@@ -139,6 +142,15 @@ const chatController = new ChatController({
   limits: chatLimits,
   scrollToBottom: () => scrollToBottom(),
   onNewContent: () => updateAutoScrollLock(),
+})
+
+const sourcePicker = mountSourcePicker(sourcePickerRoot, {
+  value: inputMode,
+  visible: false,
+  videoLabel: 'Video',
+  onValueChange: (value) => {
+    inputMode = value
+  },
 })
 
 function normalizeQueueText(input: string) {
@@ -1370,6 +1382,7 @@ function updateControls(state: UiState) {
     activeTabId = nextTabId
     activeTabUrl = nextTabUrl
     resetChatState()
+    inputMode = 'page'
     if (!tabChanged && urlChanged) {
       void clearChatHistoryForTab(previousTabId)
     }
@@ -1419,6 +1432,21 @@ function updateControls(state: UiState) {
   if (!isStreaming() || state.status.trim().length > 0) {
     headerController.setStatus(state.status)
   }
+  const nextMediaAvailable = Boolean(state.media && (state.media.hasVideo || state.media.hasAudio))
+  const nextVideoLabel = state.media?.hasAudio && !state.media.hasVideo ? 'Audio' : 'Video'
+  if (!nextMediaAvailable) {
+    inputMode = 'page'
+  }
+  mediaAvailable = nextMediaAvailable
+  sourcePickerRoot.classList.toggle('hidden', !mediaAvailable)
+  sourcePicker.update({
+    value: inputMode,
+    visible: mediaAvailable,
+    videoLabel: nextVideoLabel,
+    onValueChange: (value) => {
+      inputMode = value
+    },
+  })
   const showingSetup = maybeShowSetup(state)
   if (showingSetup && panelState.phase !== 'setup') {
     setPhase('setup')
@@ -1478,6 +1506,14 @@ function send(message: PanelToBg) {
   }
   void chrome.runtime.sendMessage(message).catch(() => {
     // ignore (panel/background race while reloading)
+  })
+}
+
+function sendSummarize(opts?: { refresh?: boolean }) {
+  send({
+    type: 'panel:summarize',
+    refresh: Boolean(opts?.refresh),
+    inputMode: inputMode,
   })
 }
 
@@ -1657,7 +1693,7 @@ function retryLastAction() {
     retryChat()
     return
   }
-  send({ type: 'panel:summarize', refresh: true })
+  sendSummarize({ refresh: true })
 }
 
 function sendChatMessage() {
@@ -1683,8 +1719,8 @@ function sendChatMessage() {
   startChatMessage(input)
 }
 
-summarizeBtn.addEventListener('click', () => send({ type: 'panel:summarize' }))
-refreshBtn.addEventListener('click', () => send({ type: 'panel:summarize', refresh: true }))
+summarizeBtn.addEventListener('click', () => sendSummarize())
+refreshBtn.addEventListener('click', () => sendSummarize({ refresh: true }))
 errorRetryBtn.addEventListener('click', () => retryLastAction())
 drawerToggleBtn.addEventListener('click', () => toggleDrawer())
 advancedBtn.addEventListener('click', () => send({ type: 'panel:openOptions' }))
@@ -1835,7 +1871,7 @@ window.addEventListener('keydown', (event) => {
     return
   }
   event.preventDefault()
-  send({ type: 'panel:summarize', refresh: true })
+  sendSummarize({ refresh: true })
 })
 
 window.addEventListener('beforeunload', () => {

@@ -2,6 +2,7 @@ export type UiState = {
   panelOpen: boolean
   daemon: { ok: boolean; authed: boolean; error?: string }
   tab: { id: number | null; url: string | null; title: string | null }
+  media: { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean } | null
   settings: {
     autoSummarize: boolean
     hoverSummaries: boolean

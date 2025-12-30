@@ -9,7 +9,7 @@ import { parseSseStream } from '../lib/sse'
 
 type PanelToBg =
   | { type: 'panel:ready' }
-  | { type: 'panel:summarize'; refresh?: boolean }
+  | { type: 'panel:summarize'; refresh?: boolean; inputMode?: 'page' | 'video' }
   | {
       type: 'panel:chat'
       messages: Array<{ role: 'user' | 'assistant'; content: string }>
@@ -55,6 +55,7 @@ type UiState = {
   panelOpen: boolean
   daemon: { ok: boolean; authed: boolean; error?: string }
   tab: { id: number | null; url: string | null; title: string | null }
+  media: { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean } | null
   settings: {
     autoSummarize: boolean
     hoverSummaries: boolean
@@ -75,6 +76,7 @@ type ExtractResponse =
       text: string
       truncated: boolean
       mediaDurationSeconds?: number | null
+      media?: { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean }
     }
   | { ok: false; error: string }
 
@@ -261,6 +263,7 @@ export default defineBackground(() => {
   let inflightUrl: string | null = null
   let runController: AbortController | null = null
   let lastNavAt = 0
+  const lastMediaProbeByTab = new Map<number, string>()
   const daemonRecovery = createDaemonRecovery()
   type CachedExtract = {
     url: string
@@ -270,6 +273,7 @@ export default defineBackground(() => {
     truncated: boolean
     totalCharacters: number
     wordCount: number | null
+    media: { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean } | null
     transcriptSource: string | null
     transcriptionProvider: string | null
     transcriptCharacters: number | null
@@ -336,6 +340,7 @@ export default defineBackground(() => {
             truncated: extracted.truncated,
             totalCharacters: extracted.text.length,
             wordCount,
+            media: extracted.media ?? null,
             transcriptSource: null,
             transcriptionProvider: null,
             transcriptCharacters: null,
@@ -409,6 +414,7 @@ export default defineBackground(() => {
       truncated: json.extracted.truncated,
       totalCharacters: json.extracted.totalCharacters,
       wordCount: json.extracted.wordCount,
+      media: null,
       transcriptSource: json.extracted.transcriptSource ?? null,
       transcriptionProvider: json.extracted.transcriptionProvider ?? null,
       transcriptCharacters: json.extracted.transcriptCharacters ?? null,
@@ -423,6 +429,9 @@ export default defineBackground(() => {
         const duration = fallback.data.mediaDurationSeconds
         if (typeof duration === 'number' && Number.isFinite(duration) && duration > 0) {
           next.mediaDurationSeconds = duration
+        }
+        if (!next.media) {
+          next.media = fallback.data.media ?? null
         }
       }
     }
@@ -457,6 +466,7 @@ export default defineBackground(() => {
     const pendingUrl = daemonRecovery.getPendingUrl()
     const currentUrlMatches = Boolean(pendingUrl && tab?.url && urlsMatch(tab.url, pendingUrl))
     const isIdle = !runController && !inflightUrl
+    const cached = tab?.id ? getCachedExtract(tab.id, tab.url ?? null) : null
     let shouldRecover = false
     if (opts?.checkRecovery) {
       shouldRecover = daemonRecovery.maybeRecover({
@@ -471,6 +481,7 @@ export default defineBackground(() => {
       panelOpen: isPanelOpen(),
       daemon: { ok: health.ok, authed: authed.ok, error: health.error ?? authed.error },
       tab: { id: tab?.id ?? null, url: tab?.url ?? null, title: tab?.title ?? null },
+      media: cached?.media ?? null,
       settings: {
         autoSummarize: settings.autoSummarize,
         hoverSummaries: settings.hoverSummaries,
@@ -491,9 +502,66 @@ export default defineBackground(() => {
     if (pendingUrl && tab?.url && !currentUrlMatches) {
       daemonRecovery.clearPending()
     }
+
+    if (tab?.id && tab.url && canSummarizeUrl(tab.url)) {
+      void primeMediaHint({
+        tabId: tab.id,
+        url: tab.url,
+        title: tab.title ?? null,
+      })
+    }
   }
 
-  const summarizeActiveTab = async (reason: string, opts?: { refresh?: boolean }) => {
+  const primeMediaHint = async ({
+    tabId,
+    url,
+    title,
+  }: {
+    tabId: number
+    url: string
+    title: string | null
+  }) => {
+    const lastProbeUrl = lastMediaProbeByTab.get(tabId)
+    if (lastProbeUrl && urlsMatch(lastProbeUrl, url)) return
+    const existing = getCachedExtract(tabId, url)
+    if (existing?.media) {
+      lastMediaProbeByTab.set(tabId, url)
+      return
+    }
+
+    lastMediaProbeByTab.set(tabId, url)
+    const attempt = await extractFromTab(tabId, 1200)
+    if (!attempt.ok) return
+    const extracted = attempt.data
+    if (!extracted.media) return
+
+    const wordCount =
+      extracted.text.length > 0 ? extracted.text.split(/\s+/).filter(Boolean).length : 0
+    cachedExtracts.set(tabId, {
+      url: extracted.url,
+      title: extracted.title ?? title,
+      text: extracted.text,
+      source: 'page',
+      truncated: extracted.truncated,
+      totalCharacters: extracted.text.length,
+      wordCount,
+      media: extracted.media,
+      transcriptSource: null,
+      transcriptionProvider: null,
+      transcriptCharacters: null,
+      transcriptWordCount: null,
+      transcriptLines: null,
+      mediaDurationSeconds: extracted.mediaDurationSeconds ?? null,
+      diagnostics: null,
+    })
+
+    void emitState('')
+  }
+
+  const summarizeActiveTab = async (
+    reason: string,
+    opts?: { refresh?: boolean; inputMode?: 'page' | 'video' }
+  ) => {
     if (!isPanelOpen()) return
 
     const settings = await loadSettings()
@@ -525,6 +593,7 @@ export default defineBackground(() => {
           title: tab.title ?? null,
           text: '',
           truncated: false,
+          media: null,
         }
 
     if (tab.url && extracted.url && !urlsMatch(tab.url, extracted.url)) {
@@ -544,6 +613,7 @@ export default defineBackground(() => {
             title: tab.title ?? null,
             text: '',
             truncated: false,
+            media: null,
           }
         : extracted
 
@@ -572,6 +642,7 @@ export default defineBackground(() => {
       truncated: resolvedPayload.truncated,
       totalCharacters: resolvedPayload.text.length,
       wordCount,
+      media: resolvedPayload.media ?? null,
       transcriptSource: null,
       transcriptionProvider: null,
       transcriptCharacters: null,
@@ -585,19 +656,22 @@ export default defineBackground(() => {
     inflightUrl = resolvedPayload.url
     let id: string
     try {
+      const baseBody = buildDaemonRequestBody({
+        extracted: resolvedPayload,
+        settings,
+        noCache: Boolean(opts?.refresh),
+      })
+      const body =
+        opts?.inputMode === 'video'
+          ? { ...baseBody, mode: 'url', videoMode: 'transcript' }
+          : baseBody
       const res = await fetch('http://127.0.0.1:8787/v1/summarize', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${settings.token.trim()}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify(
-          buildDaemonRequestBody({
-            extracted: resolvedPayload,
-            settings,
-            noCache: Boolean(opts?.refresh),
-          })
-        ),
+        body: JSON.stringify(body),
         signal: controller.signal,
       })
       const json = (await res.json()) as { ok: boolean; id?: string; error?: string }
@@ -775,9 +849,13 @@ export default defineBackground(() => {
             daemonRecovery.clearPending()
             break
           case 'panel:summarize':
-            void summarizeActiveTab((msg as { refresh?: boolean }).refresh ? 'refresh' : 'manual', {
-              refresh: Boolean((msg as { refresh?: boolean }).refresh),
-            })
+            void summarizeActiveTab(
+              (msg as { refresh?: boolean }).refresh ? 'refresh' : 'manual',
+              {
+                refresh: Boolean((msg as { refresh?: boolean }).refresh),
+                inputMode: (msg as { inputMode?: 'page' | 'video' }).inputMode,
+              }
+            )
             break
           case 'panel:chat':
             void (async () => {

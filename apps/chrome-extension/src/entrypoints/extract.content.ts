@@ -11,6 +11,11 @@ type ExtractResponse =
       text: string
       truncated: boolean
       mediaDurationSeconds?: number | null
+      media?: {
+        hasVideo: boolean
+        hasAudio: boolean
+        hasCaptions: boolean
+      }
     }
   | { ok: false; error: string }
 
@@ -31,18 +36,34 @@ function resolveMediaDurationSeconds(): number | null {
   return resolveMediaDurationSecondsFromData({ metaDuration, uiDuration, videoDuration })
 }
 
+function detectMediaInfo(): { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean } {
+  const hasVideo = Boolean(document.querySelector('video'))
+  const hasAudio = Boolean(document.querySelector('audio'))
+  const hasCaptions = Boolean(document.querySelector('track[kind="captions"], track[kind="subtitles"]'))
+  return { hasVideo, hasAudio, hasCaptions }
+}
+
 function extract(maxChars: number): ExtractResponse {
   try {
     const url = location.href
     const title = document.title || null
     const mediaDurationSeconds = resolveMediaDurationSeconds()
+    const media = detectMediaInfo()
     const cloned = document.cloneNode(true) as Document
     const reader = new Readability(cloned, { keepClasses: false })
     const parsed = reader.parse()
     const raw = parsed?.textContent?.trim() || document.body?.innerText?.trim() || ''
     if (!raw) {
-      if (mediaDurationSeconds) {
-        return { ok: true, url, title, text: '', truncated: false, mediaDurationSeconds }
+      if (mediaDurationSeconds || media.hasVideo || media.hasAudio || media.hasCaptions) {
+        return {
+          ok: true,
+          url,
+          title,
+          text: '',
+          truncated: false,
+          mediaDurationSeconds,
+          media,
+        }
       }
       return { ok: false, error: 'No readable text found.' }
     }
@@ -54,6 +75,7 @@ function extract(maxChars: number): ExtractResponse {
       text: clamped.text,
       truncated: clamped.truncated,
       mediaDurationSeconds,
+      media,
     }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Extraction failed' }
