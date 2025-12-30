@@ -16,7 +16,7 @@
 - Chrome Side Panel: add refresh summary control and bypass cache for explicit refreshes.
 - Hover summaries: prompt customization and tighter prompts for cleaner tooltips.
 - Daemon: expose version in health, plus a status pill in the Side Panel header.
-- Daemon CLI: retry health/auth checks on restart/install to avoid false negatives during startup.
+- Daemon CLI: retry health/auth checks on restart/install to avoid false negatives during startup (waits up to ~30s).
 - Chrome Side Panel: streamline setup panel with install toggle and inline copy buttons.
 - Chrome extension: reorganize settings (daemon status pill + core toggles at top), and split advanced overrides into a two‑column grid.
 - Chrome Side Panel: dynamically shorten `openrouter/` to `or/` in the metrics footer when it wraps; streaming flushes without newline gating for faster panel updates.

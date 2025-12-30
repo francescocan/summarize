@@ -346,13 +346,13 @@ export async function handleDaemonRequest({
     const { programArguments, workingDirectory } = await resolveDaemonProgramArguments({ dev })
 
     await service.install({ env: envForRun, stdout, programArguments, workingDirectory })
-    await waitForHealthWithRetries({ fetchImpl, port, attempts: 4, timeoutMs: 2500, delayMs: 250 })
+    await waitForHealthWithRetries({ fetchImpl, port, attempts: 5, timeoutMs: 5000, delayMs: 500 })
     const authed = await checkAuthWithRetries({
       fetchImpl,
       token: token.trim(),
       port,
-      attempts: 4,
-      delayMs: 200,
+      attempts: 5,
+      delayMs: 400,
     })
     if (!authed) throw new Error('Daemon is up but auth failed (token mismatch?)')
 
@@ -408,16 +408,16 @@ export async function handleDaemonRequest({
     await waitForHealthWithRetries({
       fetchImpl,
       port: cfg.port,
-      attempts: 4,
-      timeoutMs: 2500,
-      delayMs: 250,
+      attempts: 5,
+      timeoutMs: 5000,
+      delayMs: 500,
     })
     const authed = await checkAuthWithRetries({
       fetchImpl,
       token: cfg.token,
       port: cfg.port,
-      attempts: 4,
-      delayMs: 200,
+      attempts: 5,
+      delayMs: 400,
     })
     if (!authed) throw new Error('Daemon restarted but auth failed (token mismatch?)')
 
