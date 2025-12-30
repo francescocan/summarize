@@ -1487,6 +1487,9 @@ function updateControls(state: UiState) {
       inputModeOverride = value
       const host = getHost(activeTabUrl)
       if (host) inputModeByHost.set(host, value)
+      if (autoValue) {
+        sendSummarize({ refresh: true })
+      }
     },
     onSummarize: () => sendSummarize(),
   })
