@@ -1125,6 +1125,32 @@ main {
   margin-bottom: 12px;
 }
 
+.error {
+  border: 1px solid color-mix(in srgb, #ff6a6a 55%, transparent);
+  background: color-mix(in srgb, #ff6a6a 10%, var(--surface));
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.error__title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.error__message {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.error__actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
 .setup h2 {
   margin: 0 0 6px;
   font-size: 13px;

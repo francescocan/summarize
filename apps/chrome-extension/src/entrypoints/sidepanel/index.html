@@ -50,6 +50,13 @@
 
     <main>
       <div id="setup" class="setup hidden"></div>
+      <div id="error" class="error hidden" role="status" aria-live="polite">
+        <div class="error__title">Something went wrong</div>
+        <p id="errorMessage" class="error__message"></p>
+        <div class="error__actions">
+          <button id="errorRetry" type="button" class="ghost">Try again</button>
+        </div>
+      </div>
       <article id="render" class="render"></article>
       <pre id="raw" class="raw hidden"></pre>
 

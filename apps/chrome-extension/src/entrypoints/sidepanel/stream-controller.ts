@@ -61,6 +61,7 @@ export function createStreamController(options: StreamControllerOptions): Stream
   let streamedAnyNonWhitespace = false
   let rememberedUrl = false
   let streaming = false
+  let hadError = false
 
   const queueRender = () => {
     if (renderQueued || !onRender) return
@@ -99,6 +100,7 @@ export function createStreamController(options: StreamControllerOptions): Stream
     const nextController = new AbortController()
     controller = nextController
     streaming = true
+    hadError = false
     streamedAnyNonWhitespace = false
     rememberedUrl = false
     markdown = ''
@@ -174,6 +176,7 @@ export function createStreamController(options: StreamControllerOptions): Stream
       onDone?.()
     } catch (err) {
       if (nextController.signal.aborted) return
+      hadError = true
       const message = onError ? onError(err) : err instanceof Error ? err.message : String(err)
       onStatus(`Error: ${message}`)
       onPhaseChange('error')
@@ -181,7 +184,7 @@ export function createStreamController(options: StreamControllerOptions): Stream
     } finally {
       if (controller === nextController) {
         streaming = false
-        if (!nextController.signal.aborted) {
+        if (!nextController.signal.aborted && !hadError) {
           onPhaseChange('idle')
         }
         await onSyncWithActiveTab?.()

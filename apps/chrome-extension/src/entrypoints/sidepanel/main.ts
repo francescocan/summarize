@@ -53,6 +53,9 @@ if (!headerEl) throw new Error('Missing <header>')
 const progressFillEl = byId<HTMLDivElement>('progressFill')
 const drawerEl = byId<HTMLElement>('drawer')
 const setupEl = byId<HTMLDivElement>('setup')
+const errorEl = byId<HTMLDivElement>('error')
+const errorMessageEl = byId<HTMLParagraphElement>('errorMessage')
+const errorRetryBtn = byId<HTMLButtonElement>('errorRetry')
 const renderEl = byId<HTMLElement>('render')
 const mainEl = document.querySelector('main') as HTMLElement
 if (!mainEl) throw new Error('Missing <main>')
@@ -107,6 +110,7 @@ const chatHistoryCache = new Map<number, ChatMessage[]>()
 let chatHistoryLoadId = 0
 let activeTabId: number | null = null
 let activeTabUrl: string | null = null
+let lastStreamError: string | null = null
 
 const chatController = new ChatController({
   messagesEl: chatMessagesEl,
@@ -121,9 +125,24 @@ const chatController = new ChatController({
 
 const isStreaming = () => panelState.phase === 'connecting' || panelState.phase === 'streaming'
 
+const showError = (message: string) => {
+  errorMessageEl.textContent = message
+  errorEl.classList.remove('hidden')
+}
+
+const clearError = () => {
+  errorMessageEl.textContent = ''
+  errorEl.classList.add('hidden')
+}
+
 const setPhase = (phase: PanelPhase, opts?: { error?: string | null }) => {
   panelState.phase = phase
   panelState.error = phase === 'error' ? (opts?.error ?? panelState.error) : null
+  if (phase === 'error') {
+    showError(panelState.error ?? 'Something went wrong.')
+  } else {
+    clearError()
+  }
   if (phase !== 'connecting' && phase !== 'streaming') {
     headerController.stopProgress()
   }
@@ -681,13 +700,18 @@ const streamController = createStreamController({
     panelState.summaryMarkdown = null
     panelState.summaryFromCache = null
     panelState.lastMeta = { inputSummary: null, model: null, modelLabel: null }
+    lastStreamError = null
     resetChatState()
   },
   onStatus: (text) => headerController.setStatus(text),
   onBaseTitle: (text) => headerController.setBaseTitle(text),
   onBaseSubtitle: (text) => headerController.setBaseSubtitle(text),
   onPhaseChange: (phase) => {
-    setPhase(phase)
+    if (phase === 'error') {
+      setPhase('error', { error: lastStreamError ?? panelState.error })
+    } else {
+      setPhase(phase)
+    }
   },
   onRememberUrl: (url) => send({ type: 'panel:rememberUrl', url }),
   onMeta: (data) => {
@@ -727,7 +751,11 @@ const streamController = createStreamController({
   },
   onRender: renderMarkdown,
   onSyncWithActiveTab: syncWithActiveTab,
-  onError: (err) => friendlyFetchError(err, 'Stream failed'),
+  onError: (err) => {
+    const message = friendlyFetchError(err, 'Stream failed')
+    lastStreamError = message
+    return message
+  },
 })
 
 const chatStreamController = createStreamController({
@@ -1278,6 +1306,7 @@ function sendChatMessage() {
 
 summarizeBtn.addEventListener('click', () => send({ type: 'panel:summarize' }))
 refreshBtn.addEventListener('click', () => send({ type: 'panel:summarize', refresh: true }))
+errorRetryBtn.addEventListener('click', () => send({ type: 'panel:summarize', refresh: true }))
 drawerToggleBtn.addEventListener('click', () => toggleDrawer())
 advancedBtn.addEventListener('click', () => send({ type: 'panel:openOptions' }))
 
