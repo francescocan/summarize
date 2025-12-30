@@ -40,6 +40,7 @@
 - YouTube transcripts: fall back to yt-dlp metadata for duration when API and HTML data are missing.
 - Chrome Side Panel chat: fall back to content-script video duration when URL extraction has no duration metadata.
 - Tests: cover extension duration parsing and precedence.
+- Tests: cover side panel free-model refresh error and options footer link.
 - Tests: add extension e2e coverage for content-script duration metadata and run extension e2e in root `pnpm -s check`.
 - CI: root `pnpm -s check` now exercises extension e2e coverage.
 - Hover summaries: hide tooltips on error pages, show only after the first streamed chunk, avoid recycled-anchor mismatches, add hover debug logging when extended logging is enabled, and suppress native title tooltips while hover summaries are visible.

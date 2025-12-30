@@ -367,6 +367,66 @@ test('sidepanel refresh free models from advanced settings', async () => {
   }
 })
 
+test('sidepanel refresh free shows error on failure', async () => {
+  const harness = await launchExtension()
+
+  try {
+    await mockDaemonSummarize(harness)
+    await seedSettings(harness, { token: 'test-token', autoSummarize: false })
+
+    await harness.context.route('http://127.0.0.1:8787/v1/models', async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ok: true,
+          options: [
+            { id: 'auto', label: 'Auto' },
+            { id: 'free', label: 'Free (OpenRouter)' },
+          ],
+          providers: {
+            openrouter: true,
+            openai: false,
+            google: false,
+            anthropic: false,
+            xai: false,
+            zai: false,
+          },
+          openaiBaseUrl: null,
+          localModelsSource: null,
+        }),
+      })
+    })
+
+    await harness.context.route('http://127.0.0.1:8787/v1/refresh-free', async (route) => {
+      await route.fulfill({
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ok: false, error: 'nope' }),
+      })
+    })
+
+    const page = await openExtensionPage(harness, 'sidepanel.html', '#title')
+    await page.click('#drawerToggle')
+    await expect(page.locator('#drawer')).toBeVisible()
+    await sendBgMessage(harness, {
+      type: 'ui:state',
+      state: buildUiState({
+        status: '',
+        settings: { tokenPresent: true, autoSummarize: false, model: 'auto', length: 'xl' },
+      }),
+    })
+
+    await page.locator('#advancedSettings summary').click()
+    await page.locator('#modelRefresh').click()
+    await expect(page.locator('#modelStatus')).toContainText('Refresh free failed')
+    await expect(page.locator('#modelStatus')).toHaveAttribute('data-state', 'error')
+    assertNoErrors(harness)
+  } finally {
+    await closeExtension(harness.context, harness.userDataDir)
+  }
+})
+
 test('sidepanel mode picker updates theme mode', async () => {
   const harness = await launchExtension()
 
@@ -1047,6 +1107,48 @@ test('options pickers support keyboard selection', async () => {
   }
 })
 
+test('options keeps custom model selected while presets refresh', async () => {
+  const harness = await launchExtension()
+
+  try {
+    await seedSettings(harness, { token: 'test-token', model: 'auto' })
+    let modelCalls = 0
+    let releaseSecond: (() => void) | null = null
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve
+    })
+
+    await harness.context.route('http://127.0.0.1:8787/v1/models', async (route) => {
+      modelCalls += 1
+      if (modelCalls === 2) await secondGate
+      await route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ok: true,
+          options: [{ id: 'auto', label: '' }],
+          providers: { openrouter: true },
+        }),
+      })
+    })
+
+    const page = await openExtensionPage(harness, 'options.html', '#pickersRoot')
+    await expect.poll(() => modelCalls).toBeGreaterThanOrEqual(1)
+
+    await page.click('#modelPreset')
+    await expect.poll(() => modelCalls).toBe(2)
+    await page.selectOption('#modelPreset', 'custom')
+    await expect(page.locator('#modelCustom')).toBeVisible()
+
+    releaseSecond?.()
+    await expect(page.locator('#modelPreset')).toHaveValue('custom')
+    await expect(page.locator('#modelCustom')).toBeVisible()
+    assertNoErrors(harness)
+  } finally {
+    await closeExtension(harness.context, harness.userDataDir)
+  }
+})
+
 test('options scheme list renders chips', async () => {
   const harness = await launchExtension()
 
@@ -1066,6 +1168,19 @@ test('options scheme list renders chips', async () => {
     await expect(options.first().locator('.scheme-chips span')).toHaveCount(4)
     await expect(options.nth(1).locator('.scheme-chips span')).toHaveCount(4)
 
+    assertNoErrors(harness)
+  } finally {
+    await closeExtension(harness.context, harness.userDataDir)
+  }
+})
+
+test('options footer links to summarize site', async () => {
+  const harness = await launchExtension()
+
+  try {
+    const page = await openExtensionPage(harness, 'options.html', '#pickersRoot')
+    const summarizeLink = page.locator('.pageFooter a', { hasText: 'Summarize' })
+    await expect(summarizeLink).toHaveAttribute('href', /summarize\.sh/)
     assertNoErrors(harness)
   } finally {
     await closeExtension(harness.context, harness.userDataDir)
