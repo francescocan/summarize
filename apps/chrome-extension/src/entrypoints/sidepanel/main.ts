@@ -79,6 +79,7 @@ const chatInputEl = byId<HTMLTextAreaElement>('chatInput')
 const chatSendBtn = byId<HTMLButtonElement>('chatSend')
 const chatContextStatusEl = byId<HTMLDivElement>('chatContextStatus')
 const chatJumpBtn = byId<HTMLButtonElement>('chatJump')
+const chatQueueEl = byId<HTMLDivElement>('chatQueue')
 
 const md = new MarkdownIt({
   html: false,
@@ -102,10 +103,17 @@ let chatEnabledValue = defaultSettings.chatEnabled
 
 const MAX_CHAT_MESSAGES = 1000
 const MAX_CHAT_CHARACTERS = 160_000
+const MAX_CHAT_QUEUE = 10
 const chatLimits: ChatHistoryLimits = {
   maxMessages: MAX_CHAT_MESSAGES,
   maxChars: MAX_CHAT_CHARACTERS,
 }
+type ChatQueueItem = {
+  id: string
+  text: string
+  createdAt: number
+}
+let chatQueue: ChatQueueItem[] = []
 const chatHistoryCache = new Map<number, ChatMessage[]>()
 let chatHistoryLoadId = 0
 let activeTabId: number | null = null
@@ -124,6 +132,64 @@ const chatController = new ChatController({
   scrollToBottom: () => scrollToBottom(),
   onNewContent: () => updateAutoScrollLock(),
 })
+
+function normalizeQueueText(input: string) {
+  return input.replace(/\s+/g, ' ').trim()
+}
+
+function renderChatQueue() {
+  if (chatQueue.length === 0) {
+    chatQueueEl.classList.add('isHidden')
+    chatQueueEl.replaceChildren()
+    return
+  }
+  chatQueueEl.classList.remove('isHidden')
+  chatQueueEl.replaceChildren()
+
+  for (const item of chatQueue) {
+    const row = document.createElement('div')
+    row.className = 'chatQueueItem'
+    row.dataset.id = item.id
+
+    const text = document.createElement('div')
+    text.className = 'chatQueueText'
+    text.textContent = item.text
+    text.title = item.text
+
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'chatQueueRemove'
+    remove.textContent = 'x'
+    remove.setAttribute('aria-label', 'Remove queued message')
+    remove.addEventListener('click', () => removeQueuedMessage(item.id))
+
+    row.append(text, remove)
+    chatQueueEl.append(row)
+  }
+}
+
+function enqueueChatMessage(input: string): boolean {
+  const text = normalizeQueueText(input)
+  if (!text) return false
+  if (chatQueue.length >= MAX_CHAT_QUEUE) {
+    headerController.setStatus(`Queue full (${MAX_CHAT_QUEUE}). Remove one to add more.`)
+    return false
+  }
+  chatQueue.push({ id: crypto.randomUUID(), text, createdAt: Date.now() })
+  renderChatQueue()
+  return true
+}
+
+function removeQueuedMessage(id: string) {
+  chatQueue = chatQueue.filter((item) => item.id !== id)
+  renderChatQueue()
+}
+
+function clearQueuedMessages() {
+  if (chatQueue.length === 0) return
+  chatQueue = []
+  renderChatQueue()
+}
 
 const isStreaming = () => panelState.phase === 'connecting' || panelState.phase === 'streaming'
 
@@ -597,6 +663,7 @@ function applyChatEnabled() {
   if (!chatEnabledValue) {
     clearMetricsForMode('chat')
     resetChatState()
+    clearQueuedMessages()
   } else {
     renderEl.classList.remove('hidden')
   }
@@ -1268,6 +1335,7 @@ function resetChatState() {
   }
   panelState.chatStreaming = false
   chatController.reset()
+  clearQueuedMessages()
   chatJumpBtn.classList.remove('isVisible')
 }
 
@@ -1281,6 +1349,49 @@ function finishStreamingMessage() {
   chatInputEl.focus()
   chatController.finishStreamingMessage()
   void persistChatHistory()
+  maybeSendQueuedChat()
+}
+
+function startChatMessage(text: string) {
+  const input = text.trim()
+  if (!input || !chatEnabledValue) return
+
+  clearError()
+
+  chatController.addMessage({
+    id: crypto.randomUUID(),
+    role: 'user',
+    content: input,
+    timestamp: Date.now(),
+  })
+
+  chatController.addMessage({
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    content: '',
+    timestamp: Date.now(),
+  })
+
+  panelState.chatStreaming = true
+  scrollToBottom(true)
+  lastAction = 'chat'
+
+  send({
+    type: 'panel:chat',
+    messages: chatController.buildRequestMessages(),
+    summary: panelState.summaryMarkdown,
+  })
+}
+
+function maybeSendQueuedChat() {
+  if (panelState.chatStreaming || !chatEnabledValue) return
+  if (chatQueue.length === 0) {
+    renderChatQueue()
+    return
+  }
+  const next = chatQueue.shift()
+  renderChatQueue()
+  if (next) startChatMessage(next.text)
 }
 
 function retryChat() {
@@ -1303,7 +1414,6 @@ function retryChat() {
   }
 
   panelState.chatStreaming = true
-  chatSendBtn.disabled = true
   scrollToBottom(true)
 
   send({
@@ -1323,37 +1433,25 @@ function retryLastAction() {
 
 function sendChatMessage() {
   if (!chatEnabledValue) return
-  const input = chatInputEl.value.trim()
-  if (!input || panelState.chatStreaming) return
+  const rawInput = chatInputEl.value
+  const input = rawInput.trim()
+  if (!input) return
 
-  clearError()
   chatInputEl.value = ''
   chatInputEl.style.height = 'auto'
 
-  chatController.addMessage({
-    id: crypto.randomUUID(),
-    role: 'user',
-    content: input,
-    timestamp: Date.now(),
-  })
+  if (panelState.chatStreaming || chatQueue.length > 0) {
+    const queued = enqueueChatMessage(input)
+    if (!queued) {
+      chatInputEl.value = rawInput
+      chatInputEl.style.height = `${Math.min(chatInputEl.scrollHeight, 120)}px`
+    } else if (!panelState.chatStreaming) {
+      maybeSendQueuedChat()
+    }
+    return
+  }
 
-  chatController.addMessage({
-    id: crypto.randomUUID(),
-    role: 'assistant',
-    content: '',
-    timestamp: Date.now(),
-  })
-
-  panelState.chatStreaming = true
-  chatSendBtn.disabled = true
-  scrollToBottom(true)
-  lastAction = 'chat'
-
-  send({
-    type: 'panel:chat',
-    messages: chatController.buildRequestMessages(),
-    summary: panelState.summaryMarkdown,
-  })
+  startChatMessage(input)
 }
 
 summarizeBtn.addEventListener('click', () => send({ type: 'panel:summarize' }))
@@ -1428,16 +1526,35 @@ setInterval(() => {
 }, 25_000)
 
 let lastVisibility = document.visibilityState
+let panelMarkedOpen = document.visibilityState === 'visible'
+
+function markPanelOpen() {
+  if (panelMarkedOpen) return
+  panelMarkedOpen = true
+  send({ type: 'panel:ready' })
+  void syncWithActiveTab()
+}
+
+function markPanelClosed() {
+  if (!panelMarkedOpen) return
+  panelMarkedOpen = false
+  send({ type: 'panel:closed' })
+}
+
 document.addEventListener('visibilitychange', () => {
   const visible = document.visibilityState === 'visible'
   const wasVisible = lastVisibility === 'visible'
   if (visible && !wasVisible) {
-    send({ type: 'panel:ready' })
-    void syncWithActiveTab()
+    markPanelOpen()
   } else if (!visible && wasVisible) {
-    send({ type: 'panel:closed' })
+    markPanelClosed()
   }
   lastVisibility = document.visibilityState
+})
+
+window.addEventListener('focus', () => {
+  if (document.visibilityState !== 'visible') return
+  markPanelOpen()
 })
 
 window.addEventListener('keydown', (event) => {
