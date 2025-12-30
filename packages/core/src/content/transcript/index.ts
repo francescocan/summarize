@@ -31,6 +31,7 @@ import {
 
 interface ResolveTranscriptOptions {
   youtubeTranscriptMode?: ProviderFetchOptions['youtubeTranscriptMode']
+  mediaTranscriptMode?: ProviderFetchOptions['mediaTranscriptMode']
   cacheMode?: CacheMode
 }
 
@@ -45,7 +46,11 @@ export const resolveTranscriptForLink = async (
   url: string,
   html: string | null,
   deps: LinkPreviewDeps,
-  { youtubeTranscriptMode, cacheMode: providedCacheMode }: ResolveTranscriptOptions = {}
+  {
+    youtubeTranscriptMode,
+    mediaTranscriptMode,
+    cacheMode: providedCacheMode,
+  }: ResolveTranscriptOptions = {}
 ): Promise<TranscriptResolution> => {
   const normalizedUrl = url.trim()
   const embeddedYoutubeUrl =
@@ -103,6 +108,7 @@ export const resolveTranscriptForLink = async (
     resolveTwitterCookies: deps.resolveTwitterCookies ?? null,
     onProgress: deps.onProgress ?? null,
     youtubeTranscriptMode: youtubeTranscriptMode ?? 'auto',
+    mediaTranscriptMode: mediaTranscriptMode ?? 'auto',
   })
 
   if (shouldReportProgress) {

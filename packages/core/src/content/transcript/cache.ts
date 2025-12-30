@@ -92,6 +92,7 @@ export const mapCachedSource = (source: string | null): TranscriptSource | null 
   if (
     source === 'youtubei' ||
     source === 'captionTracks' ||
+    source === 'embedded' ||
     source === 'yt-dlp' ||
     source === 'podcastTranscript' ||
     source === 'whisper' ||

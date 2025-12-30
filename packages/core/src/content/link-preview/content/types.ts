@@ -9,6 +9,7 @@ export const DEFAULT_TIMEOUT_MS = 120_000
 export const DEFAULT_MAX_CONTENT_CHARACTERS = 8000
 export const DEFAULT_CACHE_MODE: CacheMode = 'default'
 export type YoutubeTranscriptMode = 'auto' | 'web' | 'apify' | 'yt-dlp' | 'no-auto'
+export type MediaTranscriptMode = 'auto' | 'prefer'
 export type FirecrawlMode = 'off' | 'auto' | 'always'
 export type ContentFormat = 'text' | 'markdown'
 export type MarkdownMode = 'off' | 'auto' | 'llm' | 'readability'
@@ -18,6 +19,7 @@ export interface FetchLinkContentOptions {
   maxCharacters?: number
   cacheMode?: CacheMode
   youtubeTranscript?: YoutubeTranscriptMode
+  mediaTranscript?: MediaTranscriptMode
   firecrawl?: FirecrawlMode
   format?: ContentFormat
   markdownMode?: MarkdownMode

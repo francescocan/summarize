@@ -52,6 +52,7 @@ export async function buildResultFromHtmlDocument({
   cacheMode,
   maxCharacters,
   youtubeTranscriptMode,
+  mediaTranscriptMode,
   firecrawlDiagnostics,
   markdownRequested,
   markdownMode,
@@ -64,6 +65,7 @@ export async function buildResultFromHtmlDocument({
   cacheMode: FetchLinkContentOptions['cacheMode']
   maxCharacters: number | null
   youtubeTranscriptMode: FetchLinkContentOptions['youtubeTranscript']
+  mediaTranscriptMode: FetchLinkContentOptions['mediaTranscript']
   firecrawlDiagnostics: FirecrawlDiagnostics
   markdownRequested: boolean
   markdownMode: MarkdownMode
@@ -118,6 +120,7 @@ export async function buildResultFromHtmlDocument({
     : effectiveNormalized
   const transcriptResolution = await resolveTranscriptForLink(url, html, deps, {
     youtubeTranscriptMode,
+    mediaTranscriptMode,
     cacheMode,
   })
 

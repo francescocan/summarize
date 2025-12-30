@@ -1,5 +1,5 @@
 import { resolveTranscriptForLink } from '../../transcript/index.js'
-import { isYouTubeUrl } from '../../url.js'
+import { isDirectMediaUrl, isYouTubeUrl } from '../../url.js'
 import type { FirecrawlScrapeResult, LinkPreviewDeps } from '../deps.js'
 import type { CacheMode, FirecrawlDiagnostics, TranscriptResolution } from '../types.js'
 import { normalizeForPrompt } from './cleaner.js'
@@ -54,6 +54,7 @@ export async function fetchLinkContent(
   const cacheMode = resolveCacheMode(options)
   const maxCharacters = resolveMaxCharacters(options)
   const youtubeTranscriptMode = options?.youtubeTranscript ?? 'auto'
+  const mediaTranscriptMode = options?.mediaTranscript ?? 'auto'
   const firecrawlMode = resolveFirecrawlMode(options)
   const markdownRequested = (options?.format ?? 'text') === 'markdown'
   const markdownMode: MarkdownMode = options?.markdownMode ?? 'auto'
@@ -71,6 +72,7 @@ export async function fetchLinkContent(
 
     const transcriptResolution = await resolveTranscriptForLink(url, null, deps, {
       youtubeTranscriptMode,
+      mediaTranscriptMode,
       cacheMode,
     })
     if (!transcriptResolution.text) {
@@ -128,6 +130,7 @@ export async function fetchLinkContent(
 
     const transcriptResolution = await resolveTranscriptForLink(url, null, deps, {
       youtubeTranscriptMode,
+      mediaTranscriptMode,
       cacheMode,
     })
     if (!transcriptResolution.text) {
@@ -169,6 +172,57 @@ export async function fetchLinkContent(
           used: false,
           provider: null,
           notes: 'Apple Podcasts short-circuit uses transcript content',
+        },
+        transcript: transcriptDiagnostics,
+      },
+    })
+  }
+
+  if (isDirectMediaUrl(url) && mediaTranscriptMode === 'prefer') {
+    const transcriptResolution = await resolveTranscriptForLink(url, null, deps, {
+      youtubeTranscriptMode,
+      mediaTranscriptMode,
+      cacheMode,
+    })
+    if (!transcriptResolution.text) {
+      const notes = transcriptResolution.diagnostics?.notes
+      const suffix = notes ? ` (${notes})` : ''
+      throw new Error(`Failed to transcribe media${suffix}`)
+    }
+
+    const transcriptDiagnostics = ensureTranscriptDiagnostics(
+      transcriptResolution,
+      cacheMode ?? 'default'
+    )
+    transcriptDiagnostics.notes = appendNote(
+      transcriptDiagnostics.notes,
+      'Direct media URL: skipped HTML/Firecrawl'
+    )
+
+    return finalizeExtractedLinkContent({
+      url,
+      baseContent: selectBaseContent('', transcriptResolution.text),
+      maxCharacters,
+      title: null,
+      description: null,
+      siteName: null,
+      transcriptResolution,
+      video: { kind: 'direct', url },
+      isVideoOnly: true,
+      diagnostics: {
+        strategy: 'html',
+        firecrawl: {
+          attempted: false,
+          used: false,
+          cacheMode,
+          cacheStatus: cacheMode === 'bypass' ? 'bypassed' : 'unknown',
+          notes: 'Direct media URL skipped HTML/Firecrawl',
+        },
+        markdown: {
+          requested: markdownRequested,
+          used: false,
+          provider: null,
+          notes: 'Direct media URL uses transcript content',
         },
         transcript: transcriptDiagnostics,
       },
@@ -223,6 +277,7 @@ export async function fetchLinkContent(
       cacheMode,
       maxCharacters,
       youtubeTranscriptMode,
+      mediaTranscriptMode,
       firecrawlDiagnostics,
       markdownRequested,
       deps,
@@ -260,6 +315,7 @@ export async function fetchLinkContent(
         ? buildSkippedTwitterTranscript(cacheMode, text.length)
         : await resolveTranscriptForLink(url, null, deps, {
             youtubeTranscriptMode,
+            mediaTranscriptMode,
             cacheMode,
           })
       const transcriptDiagnostics = ensureTranscriptDiagnostics(
@@ -429,6 +485,7 @@ export async function fetchLinkContent(
     cacheMode,
     maxCharacters,
     youtubeTranscriptMode,
+    mediaTranscriptMode,
     firecrawlDiagnostics,
     markdownRequested,
     markdownMode,

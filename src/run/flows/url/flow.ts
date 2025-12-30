@@ -164,6 +164,7 @@ export async function runUrlFlow({
           ? flags.maxExtractCharacters
           : undefined,
       youtubeTranscript: flags.youtubeMode,
+      mediaTranscript: flags.videoMode === 'transcript' ? 'prefer' : 'auto',
       firecrawl: flags.firecrawlMode,
       format: markdown.markdownRequested ? 'markdown' : 'text',
       markdownMode: markdown.markdownRequested ? markdown.effectiveMarkdownMode : undefined,
@@ -178,6 +179,7 @@ export async function runUrlFlow({
               url: targetUrl,
               options: {
                 youtubeTranscript: options.youtubeTranscript,
+                mediaTranscript: options.mediaTranscript,
                 firecrawl: options.firecrawl,
                 format: options.format,
                 markdownMode: options.markdownMode ?? null,

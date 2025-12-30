@@ -78,6 +78,20 @@ export function createDaemonUrlFlowContext(args: DaemonUrlFlowContextArgs): UrlF
 
   const languageExplicitlySet = typeof languageRaw === 'string' && Boolean(languageRaw.trim())
 
+
+  const { lengthArg } = resolveSummaryLength(lengthRaw)
+  const resolvedOverrides: RunOverrides = overrides ?? {
+    firecrawlMode: null,
+    markdownMode: null,
+    preprocessMode: null,
+    youtubeMode: null,
+    videoMode: null,
+    timeoutMs: null,
+    retries: null,
+    maxOutputTokensArg: null,
+  }
+  const videoModeOverride = resolvedOverrides.videoMode
+
   const {
     config,
     configPath,
@@ -110,9 +124,9 @@ export function createDaemonUrlFlowContext(args: DaemonUrlFlowContextArgs): UrlF
   } = resolveRunContextState({
     env: envForRun,
     envForRun,
-    programOpts: { videoMode: 'auto' },
+    programOpts: { videoMode: videoModeOverride ?? 'auto' },
     languageExplicitlySet,
-    videoModeExplicitlySet: false,
+    videoModeExplicitlySet: videoModeOverride != null,
     cliFlagPresent: false,
     cliProviderArg: null,
   })
@@ -135,17 +149,6 @@ export function createDaemonUrlFlowContext(args: DaemonUrlFlowContextArgs): UrlF
 
   const fixedModelSpec: FixedModelSpec | null =
     requestedModel.kind === 'fixed' ? requestedModel : null
-
-  const { lengthArg } = resolveSummaryLength(lengthRaw)
-  const resolvedOverrides: RunOverrides = overrides ?? {
-    firecrawlMode: null,
-    markdownMode: null,
-    preprocessMode: null,
-    youtubeMode: null,
-    timeoutMs: null,
-    retries: null,
-    maxOutputTokensArg: null,
-  }
   const maxOutputTokensArg = resolvedOverrides.maxOutputTokensArg
   const desiredOutputTokens = resolveDesiredOutputTokens({ lengthArg, maxOutputTokensArg })
 

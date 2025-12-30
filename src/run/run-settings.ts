@@ -3,6 +3,7 @@ import type {
   LengthArg,
   MarkdownMode,
   PreprocessMode,
+  VideoMode,
   YoutubeMode,
 } from '../flags.js'
 import {
@@ -13,6 +14,7 @@ import {
   parseMaxOutputTokensArg,
   parsePreprocessMode,
   parseRetriesArg,
+  parseVideoMode,
   parseYoutubeMode,
 } from '../flags.js'
 import type { OutputLanguage } from '../language.js'
@@ -35,6 +37,7 @@ export type RunOverrides = {
   markdownMode: MarkdownMode | null
   preprocessMode: PreprocessMode | null
   youtubeMode: YoutubeMode | null
+  videoMode: VideoMode | null
   timeoutMs: number | null
   retries: number | null
   maxOutputTokensArg: number | null
@@ -45,6 +48,7 @@ export type RunOverridesInput = {
   markdownMode?: unknown
   preprocess?: unknown
   youtube?: unknown
+  videoMode?: unknown
   timeout?: unknown
   retries?: unknown
   maxOutputTokens?: unknown
@@ -151,6 +155,7 @@ export function resolveRunOverrides(
     markdownMode,
     preprocess,
     youtube,
+    videoMode,
     timeout,
     retries,
     maxOutputTokens,
@@ -230,6 +235,7 @@ export function resolveRunOverrides(
     markdownMode: parseOptionalSetting(markdownMode, parseMarkdownMode, strict),
     preprocessMode: parseOptionalSetting(preprocess, parsePreprocessMode, strict),
     youtubeMode: parseOptionalSetting(youtube, parseYoutubeMode, strict),
+    videoMode: parseOptionalSetting(videoMode, parseVideoMode, strict),
     timeoutMs,
     retries: retriesResolved,
     maxOutputTokensArg,

@@ -1,4 +1,4 @@
-import type { YoutubeTranscriptMode } from '../link-preview/content/types.js'
+import type { MediaTranscriptMode, YoutubeTranscriptMode } from '../link-preview/content/types.js'
 import type {
   LinkPreviewProgressEvent,
   ResolveTwitterCookies,
@@ -19,6 +19,7 @@ export interface ProviderFetchOptions {
   scrapeWithFirecrawl?: ScrapeWithFirecrawl | null
   apifyApiToken: string | null
   youtubeTranscriptMode: YoutubeTranscriptMode
+  mediaTranscriptMode: MediaTranscriptMode
   ytDlpPath: string | null
   falApiKey: string | null
   openaiApiKey: string | null

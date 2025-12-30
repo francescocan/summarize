@@ -364,6 +364,7 @@ export async function runDaemonServer({
           markdownMode: obj.markdownMode,
           preprocess: obj.preprocess,
           youtube: obj.youtube,
+          videoMode: obj.videoMode,
           timeout: obj.timeout,
           retries: obj.retries,
           maxOutputTokens: obj.maxOutputTokens,

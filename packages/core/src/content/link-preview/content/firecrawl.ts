@@ -44,6 +44,7 @@ export async function buildResultFromFirecrawl({
   cacheMode,
   maxCharacters,
   youtubeTranscriptMode,
+  mediaTranscriptMode,
   firecrawlDiagnostics,
   markdownRequested,
   deps,
@@ -53,6 +54,7 @@ export async function buildResultFromFirecrawl({
   cacheMode: FetchLinkContentOptions['cacheMode']
   maxCharacters: number | null
   youtubeTranscriptMode: FetchLinkContentOptions['youtubeTranscript']
+  mediaTranscriptMode: FetchLinkContentOptions['mediaTranscript']
   firecrawlDiagnostics: FirecrawlDiagnostics
   markdownRequested: boolean
   deps: LinkPreviewDeps
@@ -71,6 +73,7 @@ export async function buildResultFromFirecrawl({
 
   const transcriptResolution = await resolveTranscriptForLink(url, payload.html ?? null, deps, {
     youtubeTranscriptMode,
+    mediaTranscriptMode,
     cacheMode,
   })
   const htmlMetadata = payload.html
