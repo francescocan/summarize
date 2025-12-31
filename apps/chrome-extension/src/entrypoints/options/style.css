@@ -396,7 +396,7 @@ form {
 
 .section {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .advancedFields {
@@ -513,7 +513,8 @@ form {
 
 label {
   display: grid;
-  gap: 5px;
+  gap: 6px;
+  padding: 2px 0;
   min-width: 0;
 }
 
@@ -789,7 +790,8 @@ textarea {
 
 .combo {
   display: grid;
-  gap: 5px;
+  gap: 6px;
+  padding: 2px 0;
   min-width: 0;
 }
 
