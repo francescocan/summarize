@@ -4,11 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
-    <title>LLM — summarize</title>
-    <link rel="canonical" href="https://summarize.sh/docs/llm" />
+    <title>Chrome extension — summarize</title>
+    <link rel="canonical" href="https://summarize.sh/docs/chrome-extension" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="../assets/site.css" />
   </head>
   <body>
@@ -40,23 +43,38 @@
         </aside>
 
         <article class="doc reveal">
-          <p class="kicker">summarizer</p>
-          <h1>LLM</h1>
-          <p>summarize can use multiple providers. Pick one model, one provider, then make it boring and reliable.</p>
+          <p class="kicker">product</p>
+          <h1>Chrome extension</h1>
+          <p>
+            Summarize ships a Chrome Side Panel extension backed by a tiny local daemon. It streams Markdown summaries
+            for the active tab and supports auto-summarize on navigation.
+          </p>
 
-          <h2>Keys</h2>
+          <h2>Setup</h2>
           <ul>
-            <li><code>OPENAI_API_KEY</code></li>
-            <li><code>XAI_API_KEY</code></li>
-            <li><code>GEMINI_API_KEY</code> (also accepts <code>GOOGLE_GENERATIVE_AI_API_KEY</code> / <code>GOOGLE_API_KEY</code>)</li>
+            <li><code>npm i -g @steipete/summarize</code> or <code>brew install steipete/tap/summarize</code></li>
+            <li>Build extension: <code>pnpm -C apps/chrome-extension build</code></li>
+            <li>Load unpacked: <code>apps/chrome-extension/.output/chrome-mv3</code></li>
+            <li>Open side panel → copy token command → run <code>summarize daemon install --token &lt;TOKEN&gt;</code></li>
+            <li>Verify: <code>summarize daemon status</code></li>
           </ul>
 
-          <h2>Practical advice</h2>
+          <h2>Dev</h2>
           <ul>
-            <li>Pin <code>--model</code> for stable output.</li>
-            <li>When using <code>--markdown-mode llm</code>, provider fallback is disabled by design.</li>
-            <li>For audits / tooling, prefer <code>--json</code> + fixed model.</li>
+            <li>Install daemon for dev: <code>pnpm summarize daemon install --token &lt;TOKEN&gt; --dev</code></li>
+            <li>Dev server: <code>pnpm -C apps/chrome-extension dev</code></li>
           </ul>
+
+          <h2>Troubleshooting</h2>
+          <ul>
+            <li>Daemon unreachable: <code>summarize daemon status</code></li>
+            <li>Logs: <code>~/.summarize/logs/daemon.err.log</code></li>
+            <li>Token mismatch: update token in side panel and Save</li>
+          </ul>
+
+          <div class="note">
+            The daemon listens on <code>127.0.0.1:8787</code> only and is token-protected.
+          </div>
         </article>
       </section>
 
