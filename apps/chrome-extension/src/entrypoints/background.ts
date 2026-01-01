@@ -1581,7 +1581,20 @@ export default defineBackground(() => {
     }
   })
 
-  // Chrome-only: Auto-open side panel on toolbar icon click
-  // Firefox sidebar opens manually via View menu or sidebar button
-  void chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true })
+  // Chrome: Auto-open side panel on toolbar icon click
+  if (import.meta.env.BROWSER === 'chrome') {
+    void chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true })
+  }
+
+  // Firefox: Toggle sidebar on toolbar icon click
+  // Firefox supports sidebarAction.toggle() for programmatic control
+  if (import.meta.env.BROWSER === 'firefox') {
+    chrome.action.onClicked.addListener(async () => {
+      // @ts-expect-error - sidebarAction API exists in Firefox but not in Chrome types
+      if (typeof browser?.sidebarAction?.toggle === 'function') {
+        // @ts-expect-error - Firefox-specific API
+        await browser.sidebarAction.toggle()
+      }
+    })
+  }
 })

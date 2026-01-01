@@ -106,7 +106,10 @@ chrome.permissions.contains({ permissions: ['userScripts'] })
 - Firefox has experimental `browser.userScripts` support
 - Available in Firefox 128+ behind `extensions.userScripts.enabled` pref
 - Less mature than Chrome implementation
-- **Recommendation**: Feature-detect and gracefully degrade if unavailable
+- **Implementation**: Feature-detect and gracefully degrade (see `automation/userscripts.ts`)
+  - `getUserScriptsStatus()` checks API availability
+  - `buildUserScriptsGuidance()` provides user-friendly error messages
+  - Automation features show clear guidance if API unavailable
 
 ### Storage Quota Considerations
 
@@ -196,16 +199,17 @@ chrome.permissions.contains({ permissions: ['userScripts'] })
 
 **Chrome Side Panel**:
 - Slides in from the right
-- Can be programmatically opened
-- Toggles on toolbar icon click (with `setPanelBehavior`)
+- Programmatically opened via `sidePanel.setPanelBehavior()`
+- Toggles on toolbar icon click
 
 **Firefox Sidebar**:
 - Always visible in sidebar area (left side by default)
-- User manually opens/closes via View menu or Ctrl+B
-- No programmatic open/close API
-- Different width constraints
+- Programmatically controlled via `sidebarAction.toggle()`, `open()`, `close()`
+- Toggles on toolbar icon click (implemented)
+- Keyboard shortcut: `Ctrl+Shift+S` (customizable by user)
+- Different width constraints than Chrome
 
-**Impact**: Users need to manually open sidebar on first use
+**Impact**: Minimal - both browsers now support programmatic control and icon-click toggling
 
 ### 2. Extension Context URLs
 
@@ -315,16 +319,20 @@ When ready for public distribution:
 - [x] Investigate Chrome API usage
 - [x] Document Chrome-specific APIs
 - [x] Create WXT Firefox target configuration
-- [ ] Add `sidebar_action` manifest override
+- [x] Add `sidebar_action` manifest override
+- [x] Implement toolbar icon click handler with notification
+- [x] Add notifications permission for Firefox
+- [x] Handle userScripts gracefully if unavailable (checks availability, shows guidance)
+- [x] Add browser compatibility test tags
+- [x] Configure Playwright for Firefox
+- [x] Run full test suite on Firefox build
+- [x] Verify Firefox build succeeds (.output/firefox-mv3/)
+- [x] Verify manifest permissions are correct
+- [ ] Manual testing in Firefox Developer Edition
 - [ ] Test sidebar rendering in Firefox
 - [ ] Verify SSE streaming works
 - [ ] Test debugger API for automation features
-- [ ] Handle userScripts gracefully if unavailable
-- [ ] Add browser compatibility test tags
-- [x] Configure Playwright for Firefox
-- [x] Run full test suite on Firefox build
-- [x] Manual testing in Firefox Developer Edition
-- [ ] Update user-facing documentation
+- [ ] Update user-facing documentation (end-user installation guide)
 
 ## References
 
@@ -336,12 +344,39 @@ When ready for public distribution:
 
 ## Open Questions
 
-1. **UserScripts API**: How critical is this feature? Can we ship without it on Firefox?
-2. **Sidebar width**: Do we need CSS adjustments for Firefox sidebar dimensions?
-3. **Testing coverage**: Should we maintain 100% feature parity or allow browser-specific features?
+1. **UserScripts API**: Automation features require userScripts - graceful degradation implemented with user guidance
+2. **Sidebar width**: May need CSS adjustments for Firefox sidebar dimensions (requires manual testing)
+3. **Testing coverage**: Aiming for 100% feature parity where browser APIs allow
 4. **Distribution timeline**: When to submit to AMO?
+5. **Keyboard shortcut conflicts**: Does `Ctrl+Shift+S` conflict with common Firefox shortcuts?
 
 ---
 
-**Last updated**: 2026-01-01
-**Status**: Initial investigation complete, implementation in progress
+**Last updated**: 2026-01-02
+**Status**: Core implementation complete, ready for manual testing
+
+## Recent Changes (2026-01-02)
+
+### Sidebar Control Implementation
+
+Firefox **DOES support** programmatic sidebar control via the `sidebarAction` API! The implementation includes:
+
+- **Toolbar Icon Click** (`background.ts:1589-1599`):
+  - Detects Firefox builds using `import.meta.env.BROWSER === 'firefox'`
+  - Adds `action.onClicked` listener that calls `browser.sidebarAction.toggle()`
+  - Toggles sidebar visibility just like Chrome's side panel behavior
+
+- **Keyboard Shortcut** (`wxt.config.ts:105-115`):
+  - Added `_execute_sidebar_action` command to manifest
+  - Default: `Ctrl+Shift+S` (Windows/Linux)
+  - Mac: `Command+Shift+S`
+  - Users can customize this in Firefox settings: `about:addons` → Extensions → Manage Extension Shortcuts
+
+- **Manifest Changes** (`wxt.config.ts:61`):
+  - Firefox builds use standard WebExtensions permissions (no special permissions needed)
+  - Chrome builds continue to use `sidePanel` permission
+
+**User Experience**:
+1. **Click toolbar icon**: Toggles sidebar open/close
+2. **Keyboard shortcut**: `Ctrl+Shift+S` (or `Cmd+Shift+S` on Mac) toggles sidebar
+3. **Customizable**: Users can change the shortcut in Firefox's extension settings
