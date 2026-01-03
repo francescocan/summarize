@@ -249,12 +249,12 @@ describe('Audio file error handling', () => {
      expect(mocks.streamSimple).toHaveBeenCalledTimes(0)
    })
 
-   it('handles concurrent file access gracefully', async () => {
-     mocks.streamSimple.mockClear()
+  it('handles concurrent file access gracefully', async () => {
+    mocks.streamSimple.mockClear()
 
-     const root = mkdtempSync(join(tmpdir(), 'summarize-audio-concurrent-'))
-     const audioPath = join(root, 'test.mp3')
-     writeFileSync(audioPath, Buffer.from([0xff, 0xfb, 0x10, 0x00]))
+    const root = mkdtempSync(join(tmpdir(), 'summarize-audio-concurrent-'))
+    const audioPath = join(root, 'test.mp3')
+    writeFileSync(audioPath, Buffer.from([0xff, 0xfb, 0x10, 0x00]))
 
     const stdout = collectStream()
     const stderr = collectStream()
@@ -270,18 +270,9 @@ describe('Audio file error handling', () => {
       })
 
     // Both calls should fail with same error
-    try {
-      await run()
-    } catch (err1) {
-      try {
-        await run()
-      } catch (err2) {
-        // Both should fail consistently
-        expect(String(err1)).toMatch(/transcription requires/)
-        expect(String(err2)).toMatch(/transcription requires/)
-      }
-    }
+    await expect(run()).rejects.toThrow(/transcription requires/)
+    await expect(run()).rejects.toThrow(/transcription requires/)
 
-     expect(mocks.streamSimple).toHaveBeenCalledTimes(0)
-   })
+    expect(mocks.streamSimple).toHaveBeenCalledTimes(0)
+  })
 })
