@@ -64,20 +64,44 @@ export async function summarizeMediaFile(
   const hasAnyTranscriptionProvider = openaiKey || falKey || hasLocalWhisper
 
   if (!hasAnyTranscriptionProvider) {
-    throw new Error(
-      'Audio file transcription requires one of the following:\n\n' +
-        '1. OpenAI Whisper:\n' +
-        '   Set OPENAI_API_KEY=sk-...\n\n' +
-        '2. FAL Whisper:\n' +
-        '   Set FAL_KEY=...\n\n' +
-        '3. Local whisper.cpp (recommended, free):\n' +
-        '   brew install ggerganov/ggerganov/whisper-cpp\n' +
-        '   Set SUMMARIZE_WHISPER_CPP_BINARY=/path/to/whisper-cli\n\n' +
-        'See: https://github.com/openai/whisper for setup details'
-    )
+    throw new Error(`Audio file transcription requires one of the following:
+
+1. OpenAI Whisper:
+   Set OPENAI_API_KEY=sk-...
+
+2. FAL Whisper:
+   Set FAL_KEY=...
+
+3. Local whisper.cpp (recommended, free):
+   brew install ggerganov/ggerganov/whisper-cpp
+   Set SUMMARIZE_WHISPER_CPP_BINARY=/path/to/whisper-cli
+
+See: https://github.com/openai/whisper for setup details`)
   }
 
   const absolutePath = resolvePath(args.sourceLabel)
+
+  // Validate file size before attempting transcription
+  try {
+    const stats = statSync(absolutePath)
+    const fileSizeBytes = stats.size
+    const maxSizeBytes = 500 * 1024 * 1024 // 500 MB
+
+    if (fileSizeBytes === 0) {
+      throw new Error('Audio file is empty (0 bytes). Please provide a valid audio file.')
+    }
+
+    if (fileSizeBytes > maxSizeBytes) {
+      const fileSizeMB = Math.round(fileSizeBytes / (1024 * 1024))
+      throw new Error(`Audio file is too large (${fileSizeMB} MB). Maximum supported size is 500 MB.`)
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('empty') || error.message.includes('large')) {
+      throw error // Re-throw our validation errors
+    }
+    // For other statSync errors (e.g., file not found), let them bubble up
+    throw new Error(`Unable to access audio file: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
 
   // Create Firecrawl scraper if configured
   const firecrawlScraper =
@@ -138,14 +162,11 @@ export async function summarizeMediaFile(
 
     // Check if we got a transcript
     if (!extracted.content || extracted.content.trim().length === 0) {
-      throw new Error(
-        'Failed to transcribe audio file. ' +
-          'Check that:\n' +
-          '  - Audio format is supported (MP3, WAV, M4A, OGG, FLAC)\n' +
-          '  - Transcription provider is configured\n' +
-          '  - File is readable\n' +
-          '  - Audio is not corrupted'
-      )
+      throw new Error(`Failed to transcribe audio file. Check that:
+  - Audio format is supported (MP3, WAV, M4A, OGG, FLAC)
+  - Transcription provider is configured
+  - File is readable
+  - Audio is not corrupted`)
     }
 
     // Create a text-based attachment from the transcript
