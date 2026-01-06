@@ -26,6 +26,16 @@ export function buildProgram() {
         .choices(['auto', 'transcript', 'understand'])
         .default('auto')
     )
+    .option('--slides', 'Extract slide screenshots for YouTube/direct video URLs.', false)
+    .option('--slides-ocr', 'Run OCR on extracted slides (requires tesseract).', false)
+    .option('--slides-dir <dir>', 'Base output dir for slides (default: ./slides).', 'slides')
+    .option(
+      '--slides-scene-threshold <value>',
+      'Scene detection threshold for slide changes (0.1-1.0).',
+      '0.3'
+    )
+    .option('--slides-max <count>', 'Maximum slides to extract (default: 100).', '100')
+    .option('--slides-min-duration <seconds>', 'Minimum seconds between slides (default: 2).', '2')
     .option('--timestamps', 'Include timestamps in transcripts when available.', false)
     .option(
       '--firecrawl <mode>',
@@ -139,6 +149,8 @@ ${heading('Examples')}
   ${cmd('summarize "https://example.com" --extract --format md --markdown-mode llm')} ${dim('# extracted markdown via LLM')}
   ${cmd('summarize "https://www.youtube.com/watch?v=..." --extract --format md --markdown-mode llm')} ${dim('# transcript as formatted markdown')}
   ${cmd('summarize "https://www.youtube.com/watch?v=I845O57ZSy4&t=11s" --extract --youtube web')}
+  ${cmd('summarize "https://www.youtube.com/watch?v=..." --slides')} ${dim('# extract slide screenshots')}
+  ${cmd('summarize "https://www.youtube.com/watch?v=..." --slides --slides-ocr')} ${dim('# slides + OCR text')}
   ${cmd('summarize "https://example.com" --length 20k --max-output-tokens 2k --timeout 2m --model openai/gpt-5-mini')}
   ${cmd('summarize "https://example.com" --model mymodel')} ${dim('# config preset')}
   ${cmd('summarize "https://example.com" --json --verbose')}

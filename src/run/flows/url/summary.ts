@@ -121,6 +121,7 @@ export async function outputExtractedUrl({
   prompt,
   effectiveMarkdownMode,
   transcriptionCostLabel,
+  slides,
 }: {
   ctx: UrlFlowContext
   url: string
@@ -129,6 +130,9 @@ export async function outputExtractedUrl({
   prompt: string
   effectiveMarkdownMode: 'off' | 'auto' | 'llm' | 'readability'
   transcriptionCostLabel: string | null
+  slides?: Awaited<
+    ReturnType<typeof import('../../../slides/index.js').extractSlidesForSource>
+  > | null
 }) {
   const { io, flags, model, hooks } = ctx
 
@@ -171,6 +175,7 @@ export async function outputExtractedUrl({
         hasAnthropicKey: model.apiStatus.anthropicConfigured,
       },
       extracted,
+      slides,
       prompt,
       llm: null,
       metrics: flags.metricsEnabled ? finishReport : null,
@@ -224,7 +229,8 @@ export async function outputExtractedUrl({
   if (!renderedExtract.endsWith('\n')) {
     io.stdout.write('\n')
   }
-  hooks.writeViaFooter(extractionUi.footerParts)
+  const slideFooter = slides ? [`slides ${slides.slides.length}`] : []
+  hooks.writeViaFooter([...extractionUi.footerParts, ...slideFooter])
   const report = flags.shouldComputeReport ? await hooks.buildReport() : null
   if (flags.metricsEnabled && report) {
     const costUsd = await hooks.estimateCostUsd()
@@ -255,6 +261,7 @@ export async function summarizeExtractedUrl({
   effectiveMarkdownMode,
   transcriptionCostLabel,
   onModelChosen,
+  slides,
 }: {
   ctx: UrlFlowContext
   url: string
@@ -264,6 +271,9 @@ export async function summarizeExtractedUrl({
   effectiveMarkdownMode: 'off' | 'auto' | 'llm' | 'readability'
   transcriptionCostLabel: string | null
   onModelChosen?: ((modelId: string) => void) | null
+  slides?: Awaited<
+    ReturnType<typeof import('../../../slides/index.js').extractSlidesForSource>
+  > | null
 }) {
   const { io, flags, model, cache: cacheState, hooks } = ctx
 
@@ -493,6 +503,7 @@ export async function summarizeExtractedUrl({
           hasAnthropicKey: model.apiStatus.anthropicConfigured,
         },
         extracted,
+        slides,
         prompt,
         llm: null,
         metrics: flags.metricsEnabled ? finishReport : null,
@@ -578,6 +589,7 @@ export async function summarizeExtractedUrl({
         hasAnthropicKey: model.apiStatus.anthropicConfigured,
       },
       extracted,
+      slides,
       prompt,
       llm: {
         provider: modelMeta.provider,

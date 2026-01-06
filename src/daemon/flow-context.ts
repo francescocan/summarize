@@ -18,6 +18,7 @@ import {
   resolveSummaryLength,
 } from '../run/run-settings.js'
 import { createSummaryEngine } from '../run/summary-engine.js'
+import type { SlideSettings } from '../slides/index.js'
 
 type TextSink = {
   writeChunk: (text: string) => void
@@ -48,6 +49,7 @@ export type DaemonUrlFlowContextArgs = {
   format?: 'text' | 'markdown'
   overrides?: RunOverrides | null
   extractOnly?: boolean
+  slides?: SlideSettings | null
   hooks?: {
     onModelChosen?: ((modelId: string) => void) | null
     onExtracted?: ((extracted: ExtractedLinkContent) => void) | null
@@ -71,6 +73,7 @@ export function createDaemonUrlFlowContext(args: DaemonUrlFlowContextArgs): UrlF
     format,
     overrides,
     extractOnly,
+    slides,
     hooks,
     runStartedAtMs,
     stdoutSink,
@@ -325,6 +328,7 @@ export function createDaemonUrlFlowContext(args: DaemonUrlFlowContextArgs): UrlF
       plain: true,
       configPath,
       configModelLabel,
+      slides: slides ?? null,
     },
     model: {
       requestedModel,

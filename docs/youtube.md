@@ -40,3 +40,20 @@ YouTube URLs use transcript-first extraction.
 ```bash
 pnpm summarize -- --extract "https://www.youtube.com/watch?v=I845O57ZSy4&t=11s"
 ```
+
+## Slides
+
+Use `--slides` to extract slide screenshots for YouTube videos (requires `ffmpeg` and `yt-dlp`).
+Scene detection auto-tunes the threshold using sampled frame hashes and, when confidence is low,
+tries an LLM ROI crop to ignore speaker insets:
+
+```bash
+summarize "https://www.youtube.com/watch?v=..." --slides
+summarize "https://www.youtube.com/watch?v=..." --slides --slides-ocr
+```
+
+Slides are written to `./slides/<videoId>/` by default (override with `--slides-dir`). OCR results
+are stored in `slides.json` and included in JSON output (`--json`).
+
+Relevant flags:
+- `--slides-scene-threshold <value>`: starting threshold for scene detection (auto-tuned as needed)

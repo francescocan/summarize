@@ -6,6 +6,14 @@ import {
   type FetchLinkContentOptions,
 } from '../../../content/index.js'
 import { createFirecrawlScraper } from '../../../firecrawl.js'
+import { buildAutoModelAttempts } from '../../../model-auto.js'
+import {
+  extractSlidesForSource,
+  resolveSlideSource,
+  type SlideExtractionResult,
+  type SlideLlmAttempt,
+  type SlideLlmConfig,
+} from '../../../slides/index.js'
 import { createOscProgressController } from '../../../tty/osc-progress.js'
 import { startSpinner } from '../../../tty/spinner.js'
 import { createWebsiteProgress } from '../../../tty/website-progress.js'
@@ -21,6 +29,7 @@ import {
   formatUSD,
 } from '../../format.js'
 import { writeVerbose } from '../../logging.js'
+import type { ModelAttempt } from '../../types.js'
 import {
   deriveExtractionUi,
   fetchLinkContentWithBirdTip,
@@ -215,6 +224,100 @@ export async function runUrlFlow({
 
     let extracted = await fetchWithCache(url)
     let extractionUi = deriveExtractionUi(extracted)
+    let slidesResult: SlideExtractionResult | null = null
+
+    const buildSlideLlmConfig = async () => {
+      const isSlideAttempt = (
+        attempt: ModelAttempt
+      ): attempt is ModelAttempt & { requiredEnv: SlideLlmAttempt['requiredEnv'] } =>
+        attempt.requiredEnv !== 'CLI_CLAUDE' &&
+        attempt.requiredEnv !== 'CLI_CODEX' &&
+        attempt.requiredEnv !== 'CLI_GEMINI'
+
+      const catalog = await model.getLiteLlmCatalog()
+      const attempts = buildAutoModelAttempts({
+        kind: 'image',
+        promptTokens: 0,
+        desiredOutputTokens: null,
+        requiresVideoUnderstanding: false,
+        env: model.envForAuto,
+        config: model.configForModelSelection,
+        catalog,
+        openrouterProvidersFromEnv: null,
+        cliAvailability: model.cliAvailability,
+      })
+      const mapped = attempts
+        .filter((attempt) => attempt.transport !== 'cli' && attempt.llmModelId)
+        .map((attempt) => model.summaryEngine.applyZaiOverrides(attempt as ModelAttempt))
+        .filter(
+          (attempt): attempt is ModelAttempt & { llmModelId: string } =>
+            attempt.transport !== 'cli' && Boolean(attempt.llmModelId)
+        )
+        .filter(isSlideAttempt)
+
+      if (mapped.length === 0) return null
+
+      const slideAttempts: SlideLlmConfig['attempts'] = mapped.map((attempt) => ({
+        transport: attempt.transport === 'openrouter' ? 'openrouter' : 'native',
+        userModelId: attempt.userModelId,
+        llmModelId: attempt.llmModelId ?? attempt.userModelId,
+        forceOpenRouter: attempt.forceOpenRouter,
+        requiredEnv: attempt.requiredEnv as SlideLlmAttempt['requiredEnv'],
+        openaiBaseUrlOverride: attempt.openaiBaseUrlOverride ?? null,
+        openaiApiKeyOverride: attempt.openaiApiKeyOverride ?? null,
+        forceChatCompletions: attempt.forceChatCompletions,
+      }))
+
+      return {
+        attempts: slideAttempts,
+        timeoutMs: flags.timeoutMs,
+        fetchImpl: io.fetch,
+        openaiUseChatCompletions: model.openaiUseChatCompletions,
+        apiKeys: {
+          xaiApiKey: model.apiStatus.xaiApiKey,
+          openaiApiKey: model.apiStatus.apiKey,
+          googleApiKey: model.apiStatus.googleApiKey,
+          anthropicApiKey: model.apiStatus.anthropicApiKey,
+          openrouterApiKey: model.apiStatus.openrouterApiKey,
+          zaiApiKey: model.apiStatus.zaiApiKey,
+          zaiBaseUrl: model.apiStatus.zaiBaseUrl,
+        },
+        providerBaseUrls: model.apiStatus.providerBaseUrls,
+        keyFlags: {
+          googleConfigured: model.apiStatus.googleConfigured,
+          anthropicConfigured: model.apiStatus.anthropicConfigured,
+          openrouterConfigured: model.apiStatus.openrouterConfigured,
+        },
+        verbose: flags.verbose,
+        verboseColor: flags.verboseColor,
+      }
+    }
+
+    const runSlidesExtraction = async () => {
+      if (!flags.slides || slidesResult) return
+      const source = resolveSlideSource({ url, extracted })
+      if (!source) {
+        throw new Error('Slides are only supported for YouTube or direct video URLs.')
+      }
+      if (flags.progressEnabled) {
+        spinner.setText('Extracting slides…')
+        oscProgress.setIndeterminate('Extracting slides')
+      }
+      const slideLlm = await buildSlideLlmConfig()
+      slidesResult = await extractSlidesForSource({
+        source,
+        settings: flags.slides,
+        llm: slideLlm,
+        env: io.env,
+        timeoutMs: flags.timeoutMs,
+        ytDlpPath: model.apiStatus.ytDlpPath,
+        ffmpegPath: null,
+        tesseractPath: null,
+      })
+      if (flags.progressEnabled) {
+        updateSummaryProgress()
+      }
+    }
 
     const updateSummaryProgress = () => {
       if (!flags.progressEnabled) return
@@ -272,6 +375,7 @@ export async function runUrlFlow({
         extractionUi = deriveExtractionUi(extracted)
         updateSummaryProgress()
       } else if (extracted.video.kind === 'direct') {
+        await runSlidesExtraction()
         const wantsVideoUnderstanding =
           flags.videoMode === 'understand' || flags.videoMode === 'auto'
         // Direct video URLs require a model that can consume video attachments (currently Gemini).
@@ -304,14 +408,20 @@ export async function runUrlFlow({
               if (flags.progressEnabled) spinner.setText(`Summarizing video (model: ${modelId})…`)
             },
           })
+          const slideCount = slidesResult
+            ? (slidesResult as SlideExtractionResult).slides.length
+            : null
           hooks.writeViaFooter([
             ...extractionUi.footerParts,
             ...(chosenModel ? [`model ${chosenModel}`] : []),
+            ...(slideCount != null ? [`slides ${slideCount}`] : []),
           ])
           return
         }
       }
     }
+
+    await runSlidesExtraction()
 
     hooks.onExtracted?.(extracted)
 
@@ -372,6 +482,7 @@ export async function runUrlFlow({
         prompt,
         effectiveMarkdownMode: markdown.effectiveMarkdownMode,
         transcriptionCostLabel,
+        slides: slidesResult,
       })
       return
     }
@@ -393,6 +504,7 @@ export async function runUrlFlow({
       effectiveMarkdownMode: markdown.effectiveMarkdownMode,
       transcriptionCostLabel,
       onModelChosen,
+      slides: slidesResult,
     })
   } finally {
     hooks.clearProgressIfCurrent(clearProgressLine)

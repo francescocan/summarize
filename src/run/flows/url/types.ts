@@ -6,6 +6,7 @@ import type { OutputLanguage } from '../../../language.js'
 import type { ExecFileFn } from '../../../markitdown.js'
 import type { FixedModelSpec, RequestedModel } from '../../../model-spec.js'
 import type { SummaryLength } from '../../../shared/contracts.js'
+import type { SlideSettings } from '../../../slides/index.js'
 import type { createSummaryEngine } from '../../summary-engine.js'
 import type { SummarizeAssetArgs } from '../asset/summary.js'
 
@@ -48,6 +49,7 @@ export type UrlFlowFlags = {
   plain: boolean
   configPath: string | null
   configModelLabel: string | null
+  slides: SlideSettings | null
 }
 
 export type UrlFlowModel = {
