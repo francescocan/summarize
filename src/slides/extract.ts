@@ -22,6 +22,8 @@ import type {
 const FFMPEG_TIMEOUT_FALLBACK_MS = 300_000
 const YT_DLP_TIMEOUT_MS = 300_000
 const TESSERACT_TIMEOUT_MS = 120_000
+const DEFAULT_SLIDES_WORKERS = 8
+const DEFAULT_YT_DLP_FORMAT = 'best[height<=360]/best'
 
 function logSlides(message: string): void {
   console.log(`[summarize-slides] ${message}`)
@@ -31,6 +33,22 @@ function logSlidesTiming(label: string, startedAt: number): number {
   const elapsedMs = Date.now() - startedAt
   logSlides(`${label} elapsedMs=${elapsedMs}`)
   return elapsedMs
+}
+
+function resolveSlidesWorkers(env: Record<string, string | undefined>): number {
+  const raw = env.SUMMARIZE_SLIDES_WORKERS ?? env.SLIDES_WORKERS
+  if (!raw) return DEFAULT_SLIDES_WORKERS
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_SLIDES_WORKERS
+  return Math.max(1, Math.min(16, Math.round(parsed)))
+}
+
+function resolveSlidesYtDlpFormat(env: Record<string, string | undefined>): string {
+  return (
+    env.SUMMARIZE_SLIDES_YTDLP_FORMAT ??
+    env.SLIDES_YTDLP_FORMAT ??
+    DEFAULT_YT_DLP_FORMAT
+  ).trim()
 }
 
 type ExtractSlidesArgs = {
@@ -98,8 +116,11 @@ export async function extractSlidesForSource({
   tesseractPath,
 }: ExtractSlidesArgs): Promise<SlideExtractionResult> {
   const warnings: string[] = []
+  const workers = resolveSlidesWorkers(env)
   const totalStartedAt = Date.now()
-  logSlides('pipeline=sequential steps=download->scene-detect->extract-frames->ocr')
+  logSlides(
+    `pipeline=download(sequential)->scene-detect(parallel:${workers})->extract-frames(parallel:${workers})->ocr(parallel:${workers})`
+  )
 
   const ffmpegBinary = ffmpegPath ?? resolveExecutableInPath('ffmpeg', env)
   if (!ffmpegBinary) {
@@ -130,10 +151,11 @@ export async function extractSlidesForSource({
       throw new Error('Slides for YouTube require yt-dlp (set YT_DLP_PATH or install yt-dlp).')
     }
     const downloadStartedAt = Date.now()
-    const downloaded = await downloadYoutubeVideo({ ytDlpPath, url: source.url, timeoutMs })
+    const format = resolveSlidesYtDlpFormat(env)
+    const downloaded = await downloadYoutubeVideo({ ytDlpPath, url: source.url, timeoutMs, format })
     inputPath = downloaded.filePath
     cleanupTemp = downloaded.cleanup
-    logSlidesTiming('yt-dlp download (sequential)', downloadStartedAt)
+    logSlidesTiming(`yt-dlp download (sequential, format=${format})`, downloadStartedAt)
   }
 
   try {
@@ -151,8 +173,9 @@ export async function extractSlidesForSource({
       env,
       timeoutMs,
       warnings,
+      workers,
     })
-    logSlidesTiming('ffmpeg scene-detect + extract-frames (sequential)', ffmpegStartedAt)
+    logSlidesTiming('ffmpeg scene-detect + extract-frames', ffmpegStartedAt)
 
     const renameStartedAt = Date.now()
     const renamedSlides = await renameSlidesWithTimestamps(rawSlides, slidesDir)
@@ -165,8 +188,8 @@ export async function extractSlidesForSource({
     const ocrAvailable = Boolean(tesseractPath)
     if (settings.ocr && tesseractPath) {
       const ocrStartedAt = Date.now()
-      logSlides(`ocr start count=${renamedSlides.length} mode=sequential`)
-      slidesWithOcr = await runOcrOnSlides(renamedSlides, tesseractPath)
+      logSlides(`ocr start count=${renamedSlides.length} mode=parallel workers=${workers}`)
+      slidesWithOcr = await runOcrOnSlides(renamedSlides, tesseractPath, workers)
       const elapsedMs = logSlidesTiming('ocr done', ocrStartedAt)
       if (renamedSlides.length > 0) {
         logSlides(`ocr avgMsPerSlide=${Math.round(elapsedMs / renamedSlides.length)}`)
@@ -227,16 +250,18 @@ async function downloadYoutubeVideo({
   ytDlpPath,
   url,
   timeoutMs,
+  format,
 }: {
   ytDlpPath: string
   url: string
   timeoutMs: number
+  format: string
 }): Promise<{ filePath: string; cleanup: () => Promise<void> }> {
   const dir = await fs.mkdtemp(path.join(tmpdir(), `summarize-slides-${randomUUID()}-`))
   const outputTemplate = path.join(dir, 'video.%(ext)s')
   const args = [
     '-f',
-    'best[height<=720]/best',
+    format,
     '--no-playlist',
     '--no-warnings',
     '--no-progress',
@@ -288,6 +313,7 @@ async function extractSlidesWithFfmpeg({
   env,
   timeoutMs,
   warnings,
+  workers,
 }: {
   ffmpegPath: string
   ffprobePath: string | null
@@ -301,11 +327,11 @@ async function extractSlidesWithFfmpeg({
   env: Record<string, string | undefined>
   timeoutMs: number
   warnings: string[]
+  workers: number
 }): Promise<{ slides: SlideImage[]; autoTune: SlideAutoTune }> {
   const targetMinSlides = Math.min(maxSlides, 5)
-  const thresholds = autoTuneThreshold
-    ? uniqueThresholds([sceneThreshold, 0.2, 0.15, 0.1, 0.05])
-    : [sceneThreshold]
+  const baseThreshold = sceneThreshold
+  const minThreshold = 0.05
 
   const probeStartedAt = Date.now()
   const videoInfo = await probeVideoInfo({
@@ -316,38 +342,39 @@ async function extractSlidesWithFfmpeg({
   })
   logSlidesTiming('ffprobe video info', probeStartedAt)
 
-  const baseEvalStartedAt = Date.now()
-  const baseEvaluation = await evaluateSceneThresholds({
+  const baseEvaluation = await detectSceneTimestampsAdaptive({
     ffmpegPath,
     inputPath,
-    thresholds,
+    threshold: baseThreshold,
+    minThreshold,
     targetMinSlides,
-    maxSlides,
     timeoutMs,
     crop: null,
     warnings,
+    durationSeconds: videoInfo.durationSeconds,
+    workers,
   })
-  logSlidesTiming(`scene detection base (thresholds=${thresholds.length})`, baseEvalStartedAt)
 
   let chosenThreshold = baseEvaluation.threshold
   let sceneTimestamps = baseEvaluation.timestamps
-  let autoTune: SlideAutoTune = autoTuneThreshold
-    ? {
-        enabled: true,
-        chosenThreshold,
-        confidence: baseEvaluation.confidence,
-        strategy: 'hash',
-        roi: null,
-      }
-    : {
-        enabled: false,
-        chosenThreshold,
-        confidence: 0,
-        strategy: 'none',
-        roi: null,
-      }
+  let autoTune: SlideAutoTune =
+    autoTuneThreshold && chosenThreshold !== baseThreshold
+      ? {
+          enabled: true,
+          chosenThreshold,
+          confidence: baseEvaluation.confidence,
+          strategy: 'adaptive',
+          roi: null,
+        }
+      : {
+          enabled: false,
+          chosenThreshold,
+          confidence: baseEvaluation.confidence,
+          strategy: 'none',
+          roi: null,
+        }
 
-  if (autoTuneThreshold && baseEvaluation.confidence < 0.6) {
+  if (autoTuneThreshold && sceneTimestamps.length === 0) {
     const roiStartedAt = Date.now()
     const roi = await detectSlideRoiWithLlm({
       ffmpegPath,
@@ -361,18 +388,18 @@ async function extractSlidesWithFfmpeg({
     if (roi && videoInfo.width && videoInfo.height) {
       const crop = resolveCropFromRoi(roi, videoInfo)
       if (crop) {
-        const roiEvalStartedAt = Date.now()
-        const roiEvaluation = await evaluateSceneThresholds({
+        const roiEvaluation = await detectSceneTimestampsAdaptive({
           ffmpegPath,
           inputPath,
-          thresholds,
+          threshold: baseThreshold,
+          minThreshold,
           targetMinSlides,
-          maxSlides,
           timeoutMs,
           crop,
           warnings,
+          durationSeconds: videoInfo.durationSeconds,
+          workers,
         })
-        logSlidesTiming(`scene detection roi (thresholds=${thresholds.length})`, roiEvalStartedAt)
         if (roiEvaluation.confidence >= baseEvaluation.confidence + 0.05) {
           chosenThreshold = roiEvaluation.threshold
           sceneTimestamps = roiEvaluation.timestamps
@@ -390,9 +417,9 @@ async function extractSlidesWithFfmpeg({
     }
   }
 
-  if (autoTuneThreshold && chosenThreshold !== sceneThreshold) {
+  if (autoTuneThreshold && chosenThreshold !== baseThreshold) {
     warnings.push(
-      `Auto-tuned scene threshold from ${sceneThreshold} to ${chosenThreshold} (detected ${sceneTimestamps.length} scenes)`
+      `Auto-tuned scene threshold from ${baseThreshold} to ${chosenThreshold} (detected ${sceneTimestamps.length} scenes)`
     )
   }
 
@@ -409,9 +436,10 @@ async function extractSlidesWithFfmpeg({
     outputDir,
     timestamps: trimmed.map((slide) => slide.timestamp),
     timeoutMs,
+    workers,
   })
   const extractElapsedMs = logSlidesTiming(
-    `extract frames (count=${trimmed.length}, sequential)`,
+    `extract frames (count=${trimmed.length}, parallel=${workers})`,
     extractFramesStartedAt
   )
   if (trimmed.length > 0) {
@@ -427,18 +455,19 @@ async function extractFramesAtTimestamps({
   outputDir,
   timestamps,
   timeoutMs,
+  workers,
 }: {
   ffmpegPath: string
   inputPath: string
   outputDir: string
   timestamps: number[]
   timeoutMs: number
+  workers: number
 }): Promise<SlideImage[]> {
   const slides: SlideImage[] = []
   const startedAt = Date.now()
-  for (let i = 0; i < timestamps.length; i += 1) {
-    const timestamp = timestamps[i]
-    const outputPath = path.join(outputDir, `slide_${String(i + 1).padStart(4, '0')}.png`)
+  const tasks = timestamps.map((timestamp, index) => async () => {
+    const outputPath = path.join(outputDir, `slide_${String(index + 1).padStart(4, '0')}.png`)
     const args = [
       '-hide_banner',
       '-ss',
@@ -459,192 +488,18 @@ async function extractFramesAtTimestamps({
       timeoutMs,
       errorLabel: 'ffmpeg',
     })
-    slides.push({ index: i + 1, timestamp, imagePath: outputPath })
+    return { index: index + 1, timestamp, imagePath: outputPath }
+  })
+  const results = await runWithConcurrency(tasks, workers)
+  const ordered = results.filter(Boolean).sort((a, b) => a.index - b.index)
+  for (const slide of ordered) {
+    slides.push(slide)
   }
-  logSlidesTiming(`extract frame loop (count=${timestamps.length})`, startedAt)
+  logSlidesTiming(`extract frame loop (count=${timestamps.length}, workers=${workers})`, startedAt)
   return slides
 }
 
 type CropRect = { x: number; y: number; width: number; height: number }
-
-async function evaluateSceneThresholds({
-  ffmpegPath,
-  inputPath,
-  thresholds,
-  targetMinSlides,
-  maxSlides,
-  timeoutMs,
-  crop,
-  warnings,
-}: {
-  ffmpegPath: string
-  inputPath: string
-  thresholds: number[]
-  targetMinSlides: number
-  maxSlides: number
-  timeoutMs: number
-  crop: CropRect | null
-  warnings: string[]
-}): Promise<{ threshold: number; timestamps: number[]; confidence: number }> {
-  let best = {
-    threshold: thresholds[0] ?? 0.3,
-    timestamps: [] as number[],
-    confidence: 0,
-    score: -Infinity,
-  }
-
-  for (const threshold of thresholds) {
-    const timestamps = await detectSceneTimestamps({
-      ffmpegPath,
-      inputPath,
-      threshold,
-      crop,
-      timeoutMs,
-    })
-    const { confidence, uniqueRatio } = await scoreSceneTimestampsWithHashes({
-      ffmpegPath,
-      inputPath,
-      timestamps,
-      crop,
-      timeoutMs,
-    })
-    const countScore = Math.min(1, timestamps.length / Math.max(1, targetMinSlides))
-    const maxPenalty = timestamps.length > maxSlides ? -0.4 : 0
-    const score = confidence * 0.7 + countScore * 0.3 + maxPenalty + uniqueRatio * 0.1
-    if (score > best.score || timestamps.length > best.timestamps.length) {
-      best = { threshold, timestamps, confidence, score }
-    }
-  }
-
-  if (best.timestamps.length === 0) {
-    warnings.push('Scene detection did not find any candidate slide changes.')
-  }
-
-  return { threshold: best.threshold, timestamps: best.timestamps, confidence: best.confidence }
-}
-
-async function scoreSceneTimestampsWithHashes({
-  ffmpegPath,
-  inputPath,
-  timestamps,
-  crop,
-  timeoutMs,
-}: {
-  ffmpegPath: string
-  inputPath: string
-  timestamps: number[]
-  crop: CropRect | null
-  timeoutMs: number
-}): Promise<{ confidence: number; uniqueRatio: number }> {
-  if (timestamps.length === 0) {
-    return { confidence: 0, uniqueRatio: 0 }
-  }
-  const sample = sampleTimestamps(timestamps, 8)
-  const hashes: Uint8Array[] = []
-  for (const timestamp of sample) {
-    const hash = await hashFrameAtTimestamp({
-      ffmpegPath,
-      inputPath,
-      timestamp,
-      crop,
-      timeoutMs,
-    })
-    if (hash) hashes.push(hash)
-  }
-  if (hashes.length < 2) {
-    return { confidence: hashes.length === 1 ? 0.3 : 0, uniqueRatio: 0 }
-  }
-
-  let uniqueCount = 1
-  let totalDistance = 0
-  for (let i = 1; i < hashes.length; i += 1) {
-    const distance = computeHashDistanceRatio(hashes[i - 1], hashes[i])
-    totalDistance += distance
-    if (distance > 0.12) uniqueCount += 1
-  }
-  const uniqueRatio = uniqueCount / hashes.length
-  const avgDistance = totalDistance / Math.max(1, hashes.length - 1)
-  const confidence = clamp((uniqueRatio * 0.6 + avgDistance * 1.6) / 1.6, 0, 1)
-  return { confidence, uniqueRatio }
-}
-
-function sampleTimestamps(timestamps: number[], maxSamples: number): number[] {
-  if (timestamps.length <= maxSamples) return [...timestamps]
-  const fallback = timestamps[timestamps.length - 1]
-  if (fallback == null) return []
-  const sampled: number[] = []
-  for (let i = 0; i < maxSamples; i += 1) {
-    const idx = Math.round((i / (maxSamples - 1)) * (timestamps.length - 1))
-    sampled.push(timestamps[idx] ?? fallback)
-  }
-  return Array.from(new Set(sampled))
-}
-
-async function hashFrameAtTimestamp({
-  ffmpegPath,
-  inputPath,
-  timestamp,
-  crop,
-  timeoutMs,
-}: {
-  ffmpegPath: string
-  inputPath: string
-  timestamp: number
-  crop: CropRect | null
-  timeoutMs: number
-}): Promise<Uint8Array | null> {
-  const cropFilter = crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}` : null
-  const filter = cropFilter ? `${cropFilter},scale=16:16,format=gray` : 'scale=16:16,format=gray'
-  const args = [
-    '-hide_banner',
-    '-ss',
-    String(timestamp),
-    '-i',
-    inputPath,
-    '-frames:v',
-    '1',
-    '-vf',
-    filter,
-    '-f',
-    'rawvideo',
-    '-pix_fmt',
-    'gray',
-    '-',
-  ]
-  try {
-    const buffer = await runProcessCaptureBuffer({
-      command: ffmpegPath,
-      args,
-      timeoutMs,
-      errorLabel: 'ffmpeg',
-    })
-    if (buffer.length < 256) return null
-    const bytes = buffer.subarray(0, 256)
-    return buildAverageHash(bytes)
-  } catch {
-    return null
-  }
-}
-
-function buildAverageHash(pixels: Uint8Array): Uint8Array {
-  let sum = 0
-  for (const value of pixels) sum += value
-  const avg = sum / pixels.length
-  const bits = new Uint8Array(pixels.length)
-  for (let i = 0; i < pixels.length; i += 1) {
-    bits[i] = pixels[i] >= avg ? 1 : 0
-  }
-  return bits
-}
-
-function computeHashDistanceRatio(a: Uint8Array, b: Uint8Array): number {
-  const len = Math.min(a.length, b.length)
-  let diff = 0
-  for (let i = 0; i < len; i += 1) {
-    if (a[i] !== b[i]) diff += 1
-  }
-  return len === 0 ? 0 : diff / len
-}
 
 function clamp(value: number, min: number, max: number): number {
   if (value < min) return min
@@ -963,49 +818,158 @@ function mergeRois(rois: SlideRoi[]): SlideRoi | null {
   }
 }
 
+function roundThreshold(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+function buildSegments(
+  durationSeconds: number | null,
+  workers: number
+): Array<{ start: number; duration: number }> {
+  if (!durationSeconds || durationSeconds <= 0 || workers <= 1) {
+    return [{ start: 0, duration: durationSeconds ?? 0 }]
+  }
+  const clampedWorkers = Math.max(1, Math.min(16, Math.round(workers)))
+  const segmentCount = Math.min(clampedWorkers, Math.ceil(durationSeconds / 60))
+  const segmentDuration = durationSeconds / segmentCount
+  const segments: Array<{ start: number; duration: number }> = []
+  for (let i = 0; i < segmentCount; i += 1) {
+    const start = i * segmentDuration
+    const remaining = durationSeconds - start
+    const duration = i === segmentCount - 1 ? remaining : segmentDuration
+    segments.push({ start, duration })
+  }
+  return segments
+}
+
+async function detectSceneTimestampsAdaptive({
+  ffmpegPath,
+  inputPath,
+  threshold,
+  minThreshold,
+  targetMinSlides,
+  timeoutMs,
+  crop,
+  warnings,
+  durationSeconds,
+  workers,
+}: {
+  ffmpegPath: string
+  inputPath: string
+  threshold: number
+  minThreshold: number
+  targetMinSlides: number
+  timeoutMs: number
+  crop: CropRect | null
+  warnings: string[]
+  durationSeconds: number | null
+  workers: number
+}): Promise<{ threshold: number; timestamps: number[]; confidence: number }> {
+  const segments = buildSegments(durationSeconds, workers)
+  const detectOnce = async (value: number) =>
+    detectSceneTimestamps({
+      ffmpegPath,
+      inputPath,
+      threshold: value,
+      crop,
+      timeoutMs,
+      segments,
+      workers,
+    })
+
+  const baseStart = Date.now()
+  let chosen = threshold
+  let timestamps = await detectOnce(chosen)
+  logSlidesTiming(
+    `scene detection base (threshold=${chosen}, segments=${segments.length})`,
+    baseStart
+  )
+
+  if (timestamps.length < targetMinSlides && chosen > minThreshold) {
+    const retryThreshold = Math.max(minThreshold, roundThreshold(chosen * 0.5))
+    if (retryThreshold !== chosen) {
+      const retryStart = Date.now()
+      const retry = await detectOnce(retryThreshold)
+      logSlidesTiming(
+        `scene detection retry (threshold=${retryThreshold}, segments=${segments.length})`,
+        retryStart
+      )
+      if (retry.length > timestamps.length) {
+        chosen = retryThreshold
+        timestamps = retry
+      }
+    }
+  }
+
+  if (timestamps.length === 0) {
+    warnings.push('Scene detection did not find any candidate slide changes.')
+  }
+
+  const confidence = clamp(timestamps.length / Math.max(1, targetMinSlides), 0, 1)
+  return { threshold: chosen, timestamps, confidence }
+}
+
 async function detectSceneTimestamps({
   ffmpegPath,
   inputPath,
   threshold,
   crop,
   timeoutMs,
+  segments,
+  workers,
 }: {
   ffmpegPath: string
   inputPath: string
   threshold: number
   crop: { x: number; y: number; width: number; height: number } | null
   timeoutMs: number
+  segments?: Array<{ start: number; duration: number }>
+  workers?: number
 }): Promise<number[]> {
-  const timestamps: number[] = []
   const cropFilter = crop ? `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y}` : null
   const filter = cropFilter
     ? `${cropFilter},select='gt(scene,${threshold})',showinfo`
     : `select='gt(scene,${threshold})',showinfo`
-  const args = [
-    '-hide_banner',
-    '-i',
-    inputPath,
-    '-vf',
-    filter,
-    '-vsync',
-    'vfr',
-    '-an',
-    '-sn',
-    '-f',
-    'null',
-    '-',
-  ]
-  await runProcess({
-    command: ffmpegPath,
-    args,
-    timeoutMs: Math.max(timeoutMs, FFMPEG_TIMEOUT_FALLBACK_MS),
-    errorLabel: 'ffmpeg',
-    onStderrLine: (line) => {
-      const ts = parseShowinfoTimestamp(line)
-      if (ts != null) timestamps.push(ts)
-    },
+  const defaultSegments = [{ start: 0, duration: 0 }]
+  const usedSegments = segments && segments.length > 0 ? segments : defaultSegments
+  const concurrency = workers && workers > 0 ? workers : 1
+
+  const tasks = usedSegments.map((segment) => async () => {
+    const args = [
+      '-hide_banner',
+      ...(segment.duration > 0
+        ? ['-ss', String(segment.start), '-t', String(segment.duration)]
+        : []),
+      '-i',
+      inputPath,
+      '-vf',
+      filter,
+      '-vsync',
+      'vfr',
+      '-an',
+      '-sn',
+      '-f',
+      'null',
+      '-',
+    ]
+    const timestamps: number[] = []
+    await runProcess({
+      command: ffmpegPath,
+      args,
+      timeoutMs: Math.max(timeoutMs, FFMPEG_TIMEOUT_FALLBACK_MS),
+      errorLabel: 'ffmpeg',
+      onStderrLine: (line) => {
+        const ts = parseShowinfoTimestamp(line)
+        if (ts != null) timestamps.push(ts + segment.start)
+      },
+    })
+    return timestamps
   })
-  return timestamps
+
+  const results = await runWithConcurrency(tasks, concurrency)
+  const merged = results.flat()
+  merged.sort((a, b) => a - b)
+  return merged
 }
 
 async function probeVideoInfo({
@@ -1164,19 +1128,6 @@ function mergeTimestamps(
   return result
 }
 
-function uniqueThresholds(values: number[]): number[] {
-  const seen = new Set<number>()
-  const out: number[] = []
-  for (const value of values) {
-    const rounded = Math.round(value * 1000) / 1000
-    if (!seen.has(rounded)) {
-      seen.add(rounded)
-      out.push(rounded)
-    }
-  }
-  return out
-}
-
 async function runProcessCapture({
   command,
   args,
@@ -1230,58 +1181,6 @@ async function runProcessCapture({
   })
 }
 
-async function runProcessCaptureBuffer({
-  command,
-  args,
-  timeoutMs,
-  errorLabel,
-}: {
-  command: string
-  args: string[]
-  timeoutMs: number
-  errorLabel: string
-}): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] })
-    const chunks: Buffer[] = []
-    let stderr = ''
-
-    const timeout = setTimeout(() => {
-      proc.kill('SIGKILL')
-      reject(new Error(`${errorLabel} timed out`))
-    }, timeoutMs)
-
-    if (proc.stdout) {
-      proc.stdout.on('data', (chunk: Buffer) => {
-        chunks.push(chunk)
-      })
-    }
-    if (proc.stderr) {
-      proc.stderr.setEncoding('utf8')
-      proc.stderr.on('data', (chunk: string) => {
-        if (stderr.length < 8192) {
-          stderr += chunk
-        }
-      })
-    }
-
-    proc.on('error', (error) => {
-      clearTimeout(timeout)
-      reject(error)
-    })
-
-    proc.on('close', (code) => {
-      clearTimeout(timeout)
-      if (code === 0) {
-        resolve(Buffer.concat(chunks))
-        return
-      }
-      const suffix = stderr.trim() ? `: ${stderr.trim()}` : ''
-      reject(new Error(`${errorLabel} exited with code ${code}${suffix}`))
-    })
-  })
-}
-
 function applyMaxSlidesFilter(
   slides: SlideImage[],
   maxSlides: number,
@@ -1319,22 +1218,49 @@ async function renameSlidesWithTimestamps(
   return renamed
 }
 
-async function runOcrOnSlides(slides: SlideImage[], tesseractPath: string): Promise<SlideImage[]> {
-  const results: SlideImage[] = []
-  for (const slide of slides) {
+async function runWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  workers: number
+): Promise<T[]> {
+  if (tasks.length === 0) return []
+  const concurrency = Math.max(1, Math.min(16, Math.round(workers)))
+  const results: T[] = new Array(tasks.length)
+  let nextIndex = 0
+
+  const worker = async () => {
+    while (true) {
+      const current = nextIndex
+      if (current >= tasks.length) return
+      nextIndex += 1
+      results[current] = await tasks[current]()
+    }
+  }
+
+  const runners = Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker())
+  await Promise.all(runners)
+  return results
+}
+
+async function runOcrOnSlides(
+  slides: SlideImage[],
+  tesseractPath: string,
+  workers: number
+): Promise<SlideImage[]> {
+  const tasks = slides.map((slide) => async () => {
     try {
       const text = await runTesseract(tesseractPath, slide.imagePath)
       const cleaned = cleanOcrText(text)
-      results.push({
+      return {
         ...slide,
         ocrText: cleaned,
         ocrConfidence: estimateOcrConfidence(cleaned),
-      })
+      }
     } catch {
-      results.push({ ...slide, ocrText: '', ocrConfidence: 0 })
+      return { ...slide, ocrText: '', ocrConfidence: 0 }
     }
-  }
-  return results
+  })
+  const results = await runWithConcurrency(tasks, workers)
+  return results.sort((a, b) => a.index - b.index)
 }
 
 async function runTesseract(tesseractPath: string, imagePath: string): Promise<string> {
