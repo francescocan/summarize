@@ -14,6 +14,7 @@ The cross-browser infrastructure does not affect Chrome test results.
 ### Firefox Tests: ⚠️ Blocked by Playwright Limitation
 
 **Status:** Infrastructure complete, but Playwright's Firefox driver has limitations.
+CI only runs Chromium E2E; Firefox tests are skipped unless explicitly enabled.
 
 **What Works:**
 - ✅ Browser detection (`getBrowserFromProject`)

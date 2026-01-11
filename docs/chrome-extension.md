@@ -4,7 +4,7 @@ read_when:
   - "When working on the extension, daemon, or side panel UX."
 ---
 
-# Chrome Side Panel (Chrome Extension + Daemon)
+# Browser Side Panel (Chrome + Firefox Extension + Daemon)
 
 Goal: Chrome **Side Panel** (“real sidebar”) summarizes **what you see** on the current tab. Panel open → navigation → auto summarize (optional) → **streaming** Markdown rendered in-panel.
 
@@ -14,11 +14,17 @@ Quickstart:
   - `npm i -g @steipete/summarize`
   - `brew install steipete/tap/summarize` (macOS arm64)
 - Build/load extension: `apps/chrome-extension/README.md`
+- Firefox sidebar build: `pnpm -C apps/chrome-extension build:firefox` (load via `about:debugging` → temporary add-on)
 - Open side panel → copy token install command → run:
   - `summarize daemon install --token <TOKEN>` (macOS: LaunchAgent, Linux: systemd user, Windows: Scheduled Task)
 - Verify:
   - `summarize daemon status`
   - Restart (if needed): `summarize daemon restart`
+
+Firefox notes:
+- Sidebar UX differs from Chrome’s side panel (persistent sidebar instead of slide-in panel).
+- Firefox testing is limited in Playwright; see `apps/chrome-extension/tests/README-firefox.md`.
+- Compatibility details: `apps/chrome-extension/docs/firefox.md`.
 
 Dev (repo checkout):
 
