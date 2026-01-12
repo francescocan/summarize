@@ -91,6 +91,9 @@ jobs:
       - name: Install Playwright (Chromium)
         run: pnpm -C apps/chrome-extension exec playwright install --with-deps chromium
 
+      - name: Build extension
+        run: pnpm -C apps/chrome-extension build
+
       - name: Extension E2E (Chromium)
         run: |
           xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
