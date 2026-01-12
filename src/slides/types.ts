@@ -1,0 +1,38 @@
+export type SlideSourceKind = 'youtube' | 'direct'
+
+export type SlideSource = {
+  url: string
+  kind: SlideSourceKind
+  sourceId: string
+}
+
+export type SlideImage = {
+  index: number
+  timestamp: number
+  imagePath: string
+  ocrText?: string | null
+  ocrConfidence?: number | null
+}
+
+export type SlideAutoTune = {
+  enabled: boolean
+  chosenThreshold: number
+  confidence: number
+  strategy: 'hash' | 'none'
+}
+
+export type SlideExtractionResult = {
+  sourceUrl: string
+  sourceKind: SlideSourceKind
+  sourceId: string
+  slidesDir: string
+  sceneThreshold: number
+  autoTuneThreshold: boolean
+  autoTune: SlideAutoTune
+  maxSlides: number
+  minSlideDuration: number
+  ocrRequested: boolean
+  ocrAvailable: boolean
+  slides: SlideImage[]
+  warnings: string[]
+}

@@ -7,6 +7,7 @@ Fast summaries from URLs, files, and media. Works in the terminal, a Chrome Side
 - URLs, files, and media: web pages, PDFs, images, audio/video, YouTube, podcasts, RSS.
 - Real extraction pipeline: fetch -> clean -> Markdown (readability + markitdown), Firecrawl fallback when blocked.
 - Transcript-first media flow: published transcripts when available, Whisper fallback when not.
+- YouTube slide screenshots from the browser (Side Panel).
 - Streaming TTY output with Markdown rendering (markdansi) and scrollback-safe formatting.
 - Local, paid, and free models: OpenAI-compatible local endpoints, paid providers, plus an OpenRouter free preset.
 - Output modes: Markdown/text, JSON diagnostics, extract-only, metrics, timing, and cost estimates.
@@ -16,6 +17,10 @@ Fast summaries from URLs, files, and media. Works in the terminal, a Chrome Side
 ![Summarize extension screenshot](docs/assets/summarize-extension.png)
 
 One-click summarizer for the current tab. Chrome Side Panel + Firefox Sidebar + local daemon for streaming Markdown.
+
+YouTube slide screenshots (from the browser):
+
+![Summarize YouTube slide screenshots](docs/assets/youtube-slides.png)
 
 Quickstart:
 
@@ -214,6 +219,12 @@ Use `summarize --help` or `summarize help` for the full help text.
   - Install `uvx`: `brew install uv` (or https://astral.sh/uv/)
 - `--extract`: print extracted content and exit (URLs only)
   - Deprecated alias: `--extract-only`
+- `--slides`: extract slide screenshots for YouTube/direct video URLs
+- `--slides-ocr`: run OCR on extracted slides (requires `tesseract`)
+- `--slides-dir <dir>`: base output dir for slide images (default `./slides`)
+- `--slides-scene-threshold <value>`: scene detection threshold (0.1-1.0)
+- `--slides-max <count>`: maximum slides to extract
+- `--slides-min-duration <seconds>`: minimum seconds between slides
 - `--json`: machine-readable output with diagnostics, prompt, `metrics`, and optional summary
 - `--verbose`: debug/diagnostics on stderr
 - `--metrics off|on|detailed`: metrics output (default `on`)
@@ -278,6 +289,19 @@ Environment variables for yt-dlp mode:
 - `FAL_KEY` - FAL AI Whisper fallback
 
 Apify costs money but tends to be more reliable when captions exist.
+
+### Slide extraction (YouTube + direct video URLs)
+
+Extract slide screenshots (scene detection via `ffmpeg`) and optional OCR:
+
+```bash
+summarize "https://www.youtube.com/watch?v=..." --slides
+summarize "https://www.youtube.com/watch?v=..." --slides --slides-ocr
+```
+
+Outputs are written under `./slides/<videoId>/` (or `--slides-dir`). OCR results are included in JSON output
+(`--json`) and stored in `slides.json` inside the slide directory. When scene detection is too sparse, the
+extractor also samples at a fixed interval to improve coverage.
 
 Format the extracted transcript as Markdown (headings + paragraphs) via an LLM:
 

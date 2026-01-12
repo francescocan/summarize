@@ -29,6 +29,30 @@ import type { ModelAttempt } from '../../types.js'
 import type { UrlExtractionUi } from './extract.js'
 import type { UrlFlowContext } from './types.js'
 
+type SlidesResult = Awaited<
+  ReturnType<typeof import('../../../slides/index.js').extractSlidesForSource>
+>
+
+const MAX_SLIDE_OCR_CHARS = 8000
+
+function buildSlidesPromptText(slides: SlidesResult | null | undefined): string | null {
+  if (!slides || slides.slides.length === 0) return null
+  let remaining = MAX_SLIDE_OCR_CHARS
+  const lines: string[] = []
+  for (const slide of slides.slides) {
+    const text = slide.ocrText?.trim()
+    if (!text) continue
+    const timestamp = Number.isFinite(slide.timestamp) ? slide.timestamp : null
+    const label = timestamp != null ? `${timestamp.toFixed(2)}s` : 'unknown'
+    const entry = `Slide ${slide.index} @ ${label}:\n${text}`
+    if (entry.length > remaining && lines.length > 0) break
+    lines.push(entry)
+    remaining -= entry.length
+    if (remaining <= 0) break
+  }
+  return lines.length > 0 ? lines.join('\n\n') : null
+}
+
 export function buildUrlPrompt({
   extracted,
   outputLanguage,
@@ -36,6 +60,7 @@ export function buildUrlPrompt({
   promptOverride,
   lengthInstruction,
   languageInstruction,
+  slides,
 }: {
   extracted: ExtractedLinkContent
   outputLanguage: UrlFlowContext['flags']['outputLanguage']
@@ -43,8 +68,10 @@ export function buildUrlPrompt({
   promptOverride?: string | null
   lengthInstruction?: string | null
   languageInstruction?: string | null
+  slides?: SlidesResult | null
 }): string {
   const isYouTube = extracted.siteName === 'YouTube'
+  const slidesText = buildSlidesPromptText(slides)
   return buildLinkSummaryPrompt({
     url: extracted.url,
     title: extracted.title,
@@ -56,6 +83,7 @@ export function buildUrlPrompt({
       isYouTube ||
       (extracted.transcriptSource !== null && extracted.transcriptSource !== 'unavailable'),
     hasTranscriptTimestamps: Boolean(extracted.transcriptTimedText),
+    slides: slidesText ? { count: slides?.slides.length ?? 0, text: slidesText } : null,
     summaryLength:
       lengthArg.kind === 'preset' ? lengthArg.preset : { maxCharacters: lengthArg.maxCharacters },
     outputLanguage,
@@ -121,6 +149,7 @@ export async function outputExtractedUrl({
   prompt,
   effectiveMarkdownMode,
   transcriptionCostLabel,
+  slides,
 }: {
   ctx: UrlFlowContext
   url: string
@@ -129,6 +158,9 @@ export async function outputExtractedUrl({
   prompt: string
   effectiveMarkdownMode: 'off' | 'auto' | 'llm' | 'readability'
   transcriptionCostLabel: string | null
+  slides?: Awaited<
+    ReturnType<typeof import('../../../slides/index.js').extractSlidesForSource>
+  > | null
 }) {
   const { io, flags, model, hooks } = ctx
 
@@ -171,6 +203,7 @@ export async function outputExtractedUrl({
         hasAnthropicKey: model.apiStatus.anthropicConfigured,
       },
       extracted,
+      slides,
       prompt,
       llm: null,
       metrics: flags.metricsEnabled ? finishReport : null,
@@ -224,7 +257,8 @@ export async function outputExtractedUrl({
   if (!renderedExtract.endsWith('\n')) {
     io.stdout.write('\n')
   }
-  hooks.writeViaFooter(extractionUi.footerParts)
+  const slideFooter = slides ? [`slides ${slides.slides.length}`] : []
+  hooks.writeViaFooter([...extractionUi.footerParts, ...slideFooter])
   const report = flags.shouldComputeReport ? await hooks.buildReport() : null
   if (flags.metricsEnabled && report) {
     const costUsd = await hooks.estimateCostUsd()
@@ -255,6 +289,7 @@ export async function summarizeExtractedUrl({
   effectiveMarkdownMode,
   transcriptionCostLabel,
   onModelChosen,
+  slides,
 }: {
   ctx: UrlFlowContext
   url: string
@@ -264,6 +299,9 @@ export async function summarizeExtractedUrl({
   effectiveMarkdownMode: 'off' | 'auto' | 'llm' | 'readability'
   transcriptionCostLabel: string | null
   onModelChosen?: ((modelId: string) => void) | null
+  slides?: Awaited<
+    ReturnType<typeof import('../../../slides/index.js').extractSlidesForSource>
+  > | null
 }) {
   const { io, flags, model, cache: cacheState, hooks } = ctx
 
@@ -493,6 +531,7 @@ export async function summarizeExtractedUrl({
           hasAnthropicKey: model.apiStatus.anthropicConfigured,
         },
         extracted,
+        slides,
         prompt,
         llm: null,
         metrics: flags.metricsEnabled ? finishReport : null,
@@ -578,6 +617,7 @@ export async function summarizeExtractedUrl({
         hasAnthropicKey: model.apiStatus.anthropicConfigured,
       },
       extracted,
+      slides,
       prompt,
       llm: {
         provider: modelMeta.provider,

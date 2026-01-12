@@ -1,4 +1,6 @@
-import { buildExtractCacheKey } from '../../../cache.js'
+import { promises as fs } from 'node:fs'
+
+import { buildExtractCacheKey, buildSlidesCacheKey } from '../../../cache.js'
 import { loadRemoteAsset } from '../../../content/asset.js'
 import {
   createLinkPreviewClient,
@@ -6,6 +8,11 @@ import {
   type FetchLinkContentOptions,
 } from '../../../content/index.js'
 import { createFirecrawlScraper } from '../../../firecrawl.js'
+import {
+  extractSlidesForSource,
+  resolveSlideSource,
+  type SlideExtractionResult,
+} from '../../../slides/index.js'
 import { createOscProgressController } from '../../../tty/osc-progress.js'
 import { startSpinner } from '../../../tty/spinner.js'
 import { createWebsiteProgress } from '../../../tty/website-progress.js'
@@ -215,6 +222,74 @@ export async function runUrlFlow({
 
     let extracted = await fetchWithCache(url)
     let extractionUi = deriveExtractionUi(extracted)
+    let slidesResult: SlideExtractionResult | null = null
+
+    const isCachedSlidesValid = async (
+      cached: SlideExtractionResult,
+      source: { sourceId: string; kind: string }
+    ): Promise<boolean> => {
+      if (!cached || cached.slides.length === 0) return false
+      if (cached.sourceId !== source.sourceId || cached.sourceKind !== source.kind) return false
+      try {
+        await fs.stat(cached.slidesDir)
+      } catch {
+        return false
+      }
+      for (const slide of cached.slides) {
+        if (!slide.imagePath) return false
+        try {
+          await fs.stat(slide.imagePath)
+        } catch {
+          return false
+        }
+      }
+      return true
+    }
+
+    const runSlidesExtraction = async () => {
+      if (!flags.slides || slidesResult) return
+      const source = resolveSlideSource({ url, extracted })
+      if (!source) {
+        throw new Error('Slides are only supported for YouTube or direct video URLs.')
+      }
+      const slidesCacheKey =
+        cacheStore && cacheState.mode === 'default'
+          ? buildSlidesCacheKey({ url: source.url, settings: flags.slides })
+          : null
+      if (slidesCacheKey && cacheStore) {
+        const cached = cacheStore.getJson<SlideExtractionResult>('slides', slidesCacheKey)
+        if (cached && (await isCachedSlidesValid(cached, source))) {
+          writeVerbose(io.stderr, flags.verbose, 'cache hit slides', flags.verboseColor)
+          slidesResult = cached
+          ctx.hooks.onSlidesExtracted?.(slidesResult)
+          return
+        }
+        writeVerbose(io.stderr, flags.verbose, 'cache miss slides', flags.verboseColor)
+      }
+      if (flags.progressEnabled) {
+        spinner.setText('Extracting slides…')
+        oscProgress.setIndeterminate('Extracting slides')
+      }
+      slidesResult = await extractSlidesForSource({
+        source,
+        settings: flags.slides,
+        env: io.env,
+        timeoutMs: flags.timeoutMs,
+        ytDlpPath: model.apiStatus.ytDlpPath,
+        ffmpegPath: null,
+        tesseractPath: null,
+      })
+      if (slidesResult) {
+        ctx.hooks.onSlidesExtracted?.(slidesResult)
+        if (slidesCacheKey && cacheStore) {
+          cacheStore.setJson('slides', slidesCacheKey, slidesResult, cacheState.ttlMs)
+          writeVerbose(io.stderr, flags.verbose, 'cache write slides', flags.verboseColor)
+        }
+      }
+      if (flags.progressEnabled) {
+        updateSummaryProgress()
+      }
+    }
 
     const updateSummaryProgress = () => {
       if (!flags.progressEnabled) return
@@ -272,6 +347,7 @@ export async function runUrlFlow({
         extractionUi = deriveExtractionUi(extracted)
         updateSummaryProgress()
       } else if (extracted.video.kind === 'direct') {
+        await runSlidesExtraction()
         const wantsVideoUnderstanding =
           flags.videoMode === 'understand' || flags.videoMode === 'auto'
         // Direct video URLs require a model that can consume video attachments (currently Gemini).
@@ -304,14 +380,20 @@ export async function runUrlFlow({
               if (flags.progressEnabled) spinner.setText(`Summarizing video (model: ${modelId})…`)
             },
           })
+          const slideCount = slidesResult
+            ? (slidesResult as SlideExtractionResult).slides.length
+            : null
           hooks.writeViaFooter([
             ...extractionUi.footerParts,
             ...(chosenModel ? [`model ${chosenModel}`] : []),
+            ...(slideCount != null ? [`slides ${slideCount}`] : []),
           ])
           return
         }
       }
     }
+
+    await runSlidesExtraction()
 
     hooks.onExtracted?.(extracted)
 
@@ -322,6 +404,7 @@ export async function runUrlFlow({
       promptOverride: flags.promptOverride ?? null,
       lengthInstruction: flags.lengthInstruction ?? null,
       languageInstruction: flags.languageInstruction ?? null,
+      slides: slidesResult,
     })
 
     // Whisper transcription costs need to be folded into the finish line totals.
@@ -372,6 +455,7 @@ export async function runUrlFlow({
         prompt,
         effectiveMarkdownMode: markdown.effectiveMarkdownMode,
         transcriptionCostLabel,
+        slides: slidesResult,
       })
       return
     }
@@ -393,6 +477,7 @@ export async function runUrlFlow({
       effectiveMarkdownMode: markdown.effectiveMarkdownMode,
       transcriptionCostLabel,
       onModelChosen,
+      slides: slidesResult,
     })
   } finally {
     hooks.clearProgressIfCurrent(clearProgressLine)

@@ -113,6 +113,7 @@ const setupEl = byId<HTMLDivElement>('setup')
 const errorEl = byId<HTMLDivElement>('error')
 const errorMessageEl = byId<HTMLParagraphElement>('errorMessage')
 const errorRetryBtn = byId<HTMLButtonElement>('errorRetry')
+const slideNoticeEl = byId<HTMLDivElement>('slideNotice')
 const renderEl = byId<HTMLElement>('render')
 const mainEl = document.querySelector('main') as HTMLElement
 if (!mainEl) throw new Error('Missing <main>')
@@ -157,12 +158,34 @@ const md = new MarkdownIt({
   breaks: false,
 })
 
+const slideTagPattern = /^\[slide:(\d+)\]/i
+const slideTagPlugin = (markdown: MarkdownIt) => {
+  markdown.inline.ruler.before('emphasis', 'slide_tag', (state, silent) => {
+    const match = state.src.slice(state.pos).match(slideTagPattern)
+    if (!match) return false
+    if (!silent) {
+      const token = state.push('slide_tag', 'span', 0)
+      token.meta = { index: Number(match[1]) }
+    }
+    state.pos += match[0].length
+    return true
+  })
+  markdown.renderer.rules.slide_tag = (tokens, idx) => {
+    const index = tokens[idx]?.meta?.index
+    if (!Number.isFinite(index)) return ''
+    return `<span class="slideInline" data-slide-index="${index}"></span>`
+  }
+}
+
+md.use(slideTagPlugin)
+
 const panelState: PanelState = {
   ui: null,
   currentSource: null,
   lastMeta: { inputSummary: null, model: null, modelLabel: null },
   summaryMarkdown: null,
   summaryFromCache: null,
+  slides: null,
   phase: 'idle',
   error: null,
   chatStreaming: false,
@@ -171,6 +194,7 @@ let drawerAnimation: Animation | null = null
 let autoValue = false
 let chatEnabledValue = defaultSettings.chatEnabled
 let automationEnabledValue = defaultSettings.automationEnabled
+let slidesEnabledValue = defaultSettings.slidesEnabled
 let autoKickTimer = 0
 
 const MAX_CHAT_MESSAGES = 1000
@@ -212,13 +236,111 @@ const chatController = new ChatController({
   markdown: md,
   limits: chatLimits,
   scrollToBottom: () => scrollToBottom(),
-  onNewContent: () => updateAutoScrollLock(),
+  onNewContent: () => {
+    updateAutoScrollLock()
+    renderInlineSlides(chatMessagesEl)
+  },
 })
 
 type AutomationNoticeAction = 'extensions' | 'options'
 
 function hideAutomationNotice() {
   automationNoticeEl.classList.add('hidden')
+}
+
+function showSlideNotice(message: string) {
+  slideNoticeEl.textContent = message
+  slideNoticeEl.classList.remove('hidden')
+}
+
+function hideSlideNotice() {
+  slideNoticeEl.classList.add('hidden')
+  slideNoticeEl.textContent = ''
+}
+
+const slideImageCache = new Map<string, string>()
+const slideImagePending = new Map<string, Promise<string | null>>()
+
+function clearSlideImageCache() {
+  for (const url of slideImageCache.values()) {
+    URL.revokeObjectURL(url)
+  }
+  slideImageCache.clear()
+  slideImagePending.clear()
+}
+
+async function resolveSlideImageUrl(imageUrl: string): Promise<string | null> {
+  if (!imageUrl) return null
+  const cached = slideImageCache.get(imageUrl)
+  if (cached) return cached
+  const pending = slideImagePending.get(imageUrl)
+  if (pending) return pending
+
+  const task = (async () => {
+    try {
+      const token = (await loadSettings()).token.trim()
+      if (!token) return null
+      const res = await fetch(imageUrl, { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) return null
+      const blob = await res.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      slideImageCache.set(imageUrl, objectUrl)
+      return objectUrl
+    } catch {
+      return null
+    } finally {
+      slideImagePending.delete(imageUrl)
+    }
+  })()
+
+  slideImagePending.set(imageUrl, task)
+  return task
+}
+
+async function setSlideImage(img: HTMLImageElement, imageUrl: string) {
+  if (!imageUrl) return
+  const cached = slideImageCache.get(imageUrl)
+  if (cached) {
+    img.src = cached
+    return
+  }
+  img.dataset.slideImageUrl = imageUrl
+  const resolved = await resolveSlideImageUrl(imageUrl)
+  if (!resolved) return
+  if (img.dataset.slideImageUrl !== imageUrl) return
+  img.src = resolved
+}
+
+async function fetchSlideTools(): Promise<{
+  ok: boolean
+  missing: string[]
+}> {
+  const token = (await loadSettings()).token.trim()
+  if (!token) {
+    return { ok: false, missing: ['daemon token'] }
+  }
+  const res = await fetch('http://127.0.0.1:8787/v1/tools', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) {
+    return { ok: false, missing: ['daemon tools endpoint'] }
+  }
+  const json = (await res.json()) as {
+    ok?: boolean
+    tools?: {
+      ytDlp?: { available?: boolean }
+      ffmpeg?: { available?: boolean }
+      tesseract?: { available?: boolean }
+    }
+  }
+  if (!json.ok || !json.tools) {
+    return { ok: false, missing: ['daemon tools endpoint'] }
+  }
+  const missing: string[] = []
+  if (!json.tools.ytDlp?.available) missing.push('yt-dlp')
+  if (!json.tools.ffmpeg?.available) missing.push('ffmpeg')
+  if (!json.tools.tesseract?.available) missing.push('tesseract')
+  return { ok: missing.length === 0, missing }
 }
 
 function showAutomationNotice({
@@ -425,11 +547,13 @@ renderEl.addEventListener('click', (event) => {
 const summarizeControl = mountSummarizeControl(summarizeControlRoot, {
   value: inputMode,
   mediaAvailable: false,
+  slidesEnabled: slidesEnabledValue,
   videoLabel: 'Video',
   onValueChange: (value) => {
     inputMode = value
   },
   onSummarize: () => sendSummarize(),
+  onToggleSlides: () => {},
 })
 
 function normalizeQueueText(input: string) {
@@ -729,7 +853,9 @@ function resetSummaryView({ preserveChat = false }: { preserveChat?: boolean } =
   clearMetricsForMode('summary')
   panelState.summaryMarkdown = null
   panelState.summaryFromCache = null
+  panelState.slides = null
   if (!preserveChat) {
+    clearSlideImageCache()
     resetChatState()
   }
 }
@@ -767,6 +893,70 @@ function renderMarkdown(markdown: string) {
     }
     a.setAttribute('target', '_blank')
     a.setAttribute('rel', 'noopener noreferrer')
+  }
+  renderInlineSlides(renderEl)
+}
+
+const slideModal = (() => {
+  const root = document.createElement('div')
+  root.className = 'slideModal'
+  root.dataset.open = 'false'
+  root.innerHTML = `
+    <div class="slideModal__content" role="dialog" aria-modal="true">
+      <img class="slideModal__image" alt="Slide preview" />
+      <div class="slideModal__body">
+        <div class="slideModal__title"></div>
+        <div class="slideModal__text"></div>
+      </div>
+    </div>
+  `
+  root.addEventListener('click', (event) => {
+    if (event.target === root) {
+      root.dataset.open = 'false'
+    }
+  })
+  document.body.appendChild(root)
+  return {
+    root,
+    image: root.querySelector('.slideModal__image') as HTMLImageElement,
+    title: root.querySelector('.slideModal__title') as HTMLDivElement,
+    text: root.querySelector('.slideModal__text') as HTMLDivElement,
+  }
+})()
+
+function openSlideModal(slide: { index: number; imageUrl: string; ocrText?: string | null }) {
+  slideModal.image.removeAttribute('src')
+  void setSlideImage(slideModal.image, slide.imageUrl)
+  slideModal.title.textContent = `Slide ${slide.index}`
+  slideModal.text.textContent = slide.ocrText?.trim() || 'No OCR text available.'
+  slideModal.root.dataset.open = 'true'
+}
+
+function renderInlineSlides(container: HTMLElement) {
+  if (!panelState.slides) return
+  const slidesByIndex = new Map(panelState.slides.slides.map((slide) => [slide.index, slide]))
+  const placeholders = Array.from(container.querySelectorAll('span.slideInline'))
+  for (const placeholder of placeholders) {
+    const indexAttr = placeholder.getAttribute('data-slide-index')
+    const index = indexAttr ? Number(indexAttr) : Number.NaN
+    const slide = slidesByIndex.get(index)
+    if (!slide) continue
+    const wrapper = document.createElement('div')
+    wrapper.className = 'slideInline'
+    wrapper.dataset.slideIndex = String(index)
+    const button = document.createElement('button')
+    button.type = 'button'
+    const img = document.createElement('img')
+    img.alt = `Slide ${index}`
+    void setSlideImage(img, slide.imageUrl)
+    const caption = document.createElement('div')
+    caption.className = 'slideCaption'
+    caption.textContent = `Slide ${index}`
+    button.appendChild(img)
+    button.appendChild(caption)
+    button.addEventListener('click', () => openSlideModal(slide))
+    wrapper.appendChild(button)
+    placeholder.replaceWith(wrapper)
   }
 }
 
@@ -1574,6 +1764,13 @@ const streamController = createStreamController({
       })
     )
   },
+  onSlides: (data) => {
+    panelState.slides = data
+    if (panelState.summaryMarkdown) {
+      renderInlineSlides(renderEl)
+    }
+    renderInlineSlides(chatMessagesEl)
+  },
   onSummaryFromCache: (value) => {
     panelState.summaryFromCache = value
     if (value === true) {
@@ -1936,7 +2133,9 @@ function updateControls(state: UiState) {
   })
   chatEnabledValue = state.settings.chatEnabled
   automationEnabledValue = state.settings.automationEnabled
+  slidesEnabledValue = state.settings.slidesEnabled
   if (!automationEnabledValue) hideAutomationNotice()
+  if (!slidesEnabledValue) hideSlideNotice()
   applyChatEnabled()
   if (chatEnabledValue && activeTabId && chatController.getMessages().length === 0) {
     void restoreChatHistory()
@@ -1988,21 +2187,46 @@ function updateControls(state: UiState) {
     inputModeOverride = null
   }
   mediaAvailable = nextMediaAvailable
-  summarizeControl.update({
-    value: inputMode,
-    mediaAvailable,
-    videoLabel: nextVideoLabel,
-    pageWords: state.stats.pageWords,
-    videoDurationSeconds: state.stats.videoDurationSeconds,
-    onValueChange: (value) => {
-      inputMode = value
-      inputModeOverride = value
-      if (autoValue) {
-        sendSummarize({ refresh: true })
-      }
-    },
-    onSummarize: () => sendSummarize(),
-  })
+  const updateSummarizeControl = () => {
+    summarizeControl.update({
+      value: inputMode,
+      mediaAvailable,
+      slidesEnabled: slidesEnabledValue,
+      videoLabel: nextVideoLabel,
+      pageWords: state.stats.pageWords,
+      videoDurationSeconds: state.stats.videoDurationSeconds,
+      onValueChange: (value) => {
+        inputMode = value
+        inputModeOverride = value
+        if (autoValue) {
+          sendSummarize({ refresh: true })
+        }
+      },
+      onSummarize: () => sendSummarize(),
+      onToggleSlides: () => {
+        void (async () => {
+          const nextValue = !slidesEnabledValue
+          if (nextValue) {
+            const tools = await fetchSlideTools()
+            if (!tools.ok) {
+              const missing = tools.missing.join(', ')
+              showSlideNotice(
+                `Slide extraction requires ${missing}. Install and restart the daemon.`
+              )
+              return
+            }
+            hideSlideNotice()
+          } else {
+            hideSlideNotice()
+          }
+          slidesEnabledValue = nextValue
+          await patchSettings({ slidesEnabled: slidesEnabledValue })
+          updateSummarizeControl()
+        })()
+      },
+    })
+  }
+  updateSummarizeControl()
   const showingSetup = maybeShowSetup(state)
   if (showingSetup && panelState.phase !== 'setup') {
     setPhase('setup')

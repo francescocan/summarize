@@ -11,6 +11,7 @@ import { loadSummarizeConfig } from '../config.js'
 import { parseExtractFormat, parseMetricsMode, parseStreamMode } from '../flags.js'
 import type { ExecFileFn } from '../markitdown.js'
 import type { FixedModelSpec } from '../model-spec.js'
+import { resolveSlideSettings } from '../slides/index.js'
 import { formatVersionLine } from '../version.js'
 import { createCacheStateFromConfig } from './cache-state.js'
 import {
@@ -199,6 +200,22 @@ export async function runCli(
   cliProviderArgRaw = inputResolution.cliProviderArgRaw
   const inputTarget = inputResolution.inputTarget
   const url = inputResolution.url
+
+  const slidesSettings = resolveSlideSettings({
+    slides: program.opts().slides,
+    slidesOcr: program.opts().slidesOcr,
+    slidesDir: program.opts().slidesDir,
+    slidesSceneThreshold: program.opts().slidesSceneThreshold,
+    slidesSceneThresholdExplicit: normalizedArgv.some(
+      (arg) => arg === '--slides-scene-threshold' || arg.startsWith('--slides-scene-threshold=')
+    ),
+    slidesMax: program.opts().slidesMax,
+    slidesMinDuration: program.opts().slidesMinDuration,
+    cwd: process.cwd(),
+  })
+  if (slidesSettings && inputTarget.kind !== 'url') {
+    throw new Error('--slides is only supported for URL inputs')
+  }
 
   const runStartedAtMs = Date.now()
 
@@ -678,6 +695,7 @@ export async function runCli(
         plain,
         configPath,
         configModelLabel,
+        slides: slidesSettings,
       },
       model: {
         requestedModel,
