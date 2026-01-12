@@ -151,6 +151,9 @@ const automationNoticeMessageEl = byId<HTMLDivElement>('automationNoticeMessage'
 const automationNoticeActionBtn = byId<HTMLButtonElement>('automationNoticeAction')
 const chatJumpBtn = byId<HTMLButtonElement>('chatJump')
 const chatQueueEl = byId<HTMLDivElement>('chatQueue')
+const inlineErrorEl = byId<HTMLDivElement>('inlineError')
+const inlineErrorMessageEl = byId<HTMLDivElement>('inlineErrorMessage')
+const inlineErrorCloseBtn = byId<HTMLButtonElement>('inlineErrorClose')
 
 const md = new MarkdownIt({
   html: false,
@@ -626,13 +629,29 @@ const clearError = () => {
   errorEl.classList.add('hidden')
 }
 
+let inlineErrorToken = 0
+const showInlineError = (message: string) => {
+  inlineErrorToken += 1
+  inlineErrorEl.dataset.token = String(inlineErrorToken)
+  inlineErrorMessageEl.textContent = message
+  inlineErrorEl.classList.remove('hidden')
+}
+
+const clearInlineError = () => {
+  inlineErrorMessageEl.textContent = ''
+  inlineErrorEl.classList.add('hidden')
+}
+
 const setPhase = (phase: PanelPhase, opts?: { error?: string | null }) => {
   panelState.phase = phase
   panelState.error = phase === 'error' ? (opts?.error ?? panelState.error) : null
   if (phase === 'error') {
-    showError(panelState.error ?? 'Something went wrong.')
+    const message = panelState.error ?? 'Something went wrong.'
+    showError(message)
+    showInlineError(message)
   } else {
     clearError()
+    clearInlineError()
   }
   if (phase !== 'connecting' && phase !== 'streaming') {
     headerController.stopProgress()
@@ -2607,6 +2626,7 @@ function sendChatMessage() {
 
 refreshBtn.addEventListener('click', () => sendSummarize({ refresh: true }))
 errorRetryBtn.addEventListener('click', () => retryLastAction())
+inlineErrorCloseBtn.addEventListener('click', () => clearInlineError())
 drawerToggleBtn.addEventListener('click', () => toggleDrawer())
 advancedBtn.addEventListener('click', () => {
   void send({ type: 'panel:openOptions' })
