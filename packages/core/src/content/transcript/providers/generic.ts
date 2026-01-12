@@ -115,6 +115,7 @@ export const fetchTranscript = async (
   const mod = await import('./youtube/yt-dlp.js')
   const ytdlpResult = await mod.fetchTranscriptWithYtDlp({
     ytDlpPath: options.ytDlpPath,
+    env: options.env,
     openaiApiKey: options.openaiApiKey,
     falApiKey: options.falApiKey,
     url: context.url,

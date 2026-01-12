@@ -72,6 +72,7 @@ export const fetchTranscript = async (
   const transcribe = (request: TranscribeRequest): Promise<TranscriptionResult> =>
     transcribeMediaUrl({
       fetchImpl: options.fetch,
+      env: options.env,
       openaiApiKey: options.openaiApiKey,
       falApiKey: options.falApiKey,
       notes,
@@ -196,6 +197,7 @@ export const fetchTranscript = async (
       const mod = await import('./youtube/yt-dlp.js')
       const result = await mod.fetchTranscriptWithYtDlp({
         ytDlpPath: options.ytDlpPath,
+        env: options.env,
         openaiApiKey: options.openaiApiKey,
         falApiKey: options.falApiKey,
         url: context.url,

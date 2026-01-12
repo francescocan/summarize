@@ -210,6 +210,7 @@ export const fetchTranscript = async (
     attemptedProviders.push('yt-dlp')
     const ytdlpResult = await fetchTranscriptWithYtDlp({
       ytDlpPath: options.ytDlpPath,
+      env: options.env,
       openaiApiKey: options.openaiApiKey,
       falApiKey: options.falApiKey,
       url,

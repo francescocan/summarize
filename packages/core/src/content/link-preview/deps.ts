@@ -67,7 +67,7 @@ export type LinkPreviewProgressEvent =
       kind: 'transcript-whisper-start'
       url: string
       service: 'youtube' | 'podcast' | 'generic'
-      providerHint: 'cpp' | 'openai' | 'fal' | 'openai->fal' | 'unknown'
+      providerHint: 'cpp' | 'onnx' | 'openai' | 'fal' | 'openai->fal' | 'unknown'
       modelId: string | null
       totalDurationSeconds: number | null
       parts: number | null
@@ -150,6 +150,7 @@ export type ResolveTwitterCookies = (args: { url: string }) => Promise<TwitterCo
 /** Internal dependency bag; prefer createLinkPreviewClient unless you need custom wiring. */
 export interface LinkPreviewDeps {
   fetch: typeof fetch
+  env?: Record<string, string | undefined>
   scrapeWithFirecrawl: ScrapeWithFirecrawl | null
   apifyApiToken: string | null
   ytDlpPath: string | null

@@ -221,6 +221,26 @@ export async function runCli(
   const debug = Boolean(program.opts().debug)
   const verbose = Boolean(program.opts().verbose) || debug
 
+  const normalizeTranscriber = (value: unknown): 'whisper' | 'parakeet' | 'canary' | null => {
+    if (typeof value !== 'string') return null
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'whisper' || normalized === 'parakeet' || normalized === 'canary')
+      return normalized
+    return null
+  }
+
+  const transcriberExplicitlySet = normalizedArgv.some(
+    (arg) => arg === '--transcriber' || arg.startsWith('--transcriber=')
+  )
+  const envTranscriber =
+    (envForRun as Record<string, string | undefined>)?.SUMMARIZE_TRANSCRIBER ??
+    process.env.SUMMARIZE_TRANSCRIBER ??
+    null
+  const transcriber =
+    normalizeTranscriber(transcriberExplicitlySet ? program.opts().transcriber : envTranscriber) ??
+    'whisper'
+  ;(envForRun as Record<string, string | undefined>).SUMMARIZE_TRANSCRIBER = transcriber
+
   const isYoutubeUrl = typeof url === 'string' ? /youtube\.com|youtu\.be/i.test(url) : false
   const formatExplicitlySet = normalizedArgv.some(
     (arg) => arg === '--format' || arg.startsWith('--format=')
