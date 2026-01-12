@@ -72,6 +72,17 @@ function resolveSlidesExtractStream(env: Record<string, string | undefined>): bo
   return true
 }
 
+function resolveToolPath(
+  binary: string,
+  env: Record<string, string | undefined>,
+  explicitEnvKey?: string
+): string | null {
+  const explicit =
+    explicitEnvKey && typeof env[explicitEnvKey] === 'string' ? env[explicitEnvKey]?.trim() : ''
+  if (explicit) return resolveExecutableInPath(explicit, env)
+  return resolveExecutableInPath(binary, env)
+}
+
 type ExtractSlidesArgs = {
   source: SlideSource
   settings: SlideSettings
@@ -148,14 +159,14 @@ export async function extractSlidesForSource({
       `pipeline=ingest(sequential)->scene-detect(parallel:${workers})->extract-frames(parallel:${workers})->ocr(parallel:${workers})`
     )
 
-    const ffmpegBinary = ffmpegPath ?? resolveExecutableInPath('ffmpeg', env)
+    const ffmpegBinary = ffmpegPath ?? resolveToolPath('ffmpeg', env, 'FFMPEG_PATH')
     if (!ffmpegBinary) {
       throw new Error('Missing ffmpeg (install ffmpeg or add it to PATH).')
     }
-    const ffprobeBinary = resolveExecutableInPath('ffprobe', env)
+    const ffprobeBinary = resolveToolPath('ffprobe', env, 'FFPROBE_PATH')
 
     if (settings.ocr && !tesseractPath) {
-      const resolved = resolveExecutableInPath('tesseract', env)
+      const resolved = resolveToolPath('tesseract', env, 'TESSERACT_PATH')
       if (!resolved) {
         throw new Error('Missing tesseract OCR (install tesseract or skip --slides-ocr).')
       }
@@ -271,10 +282,6 @@ export async function extractSlidesForSource({
         logSlidesTiming('ffmpeg scene-detect (retry)', retryStartedAt)
       }
 
-      if (detection.timestamps.length === 0) {
-        throw new Error('No slides detected; try adjusting slide extraction settings.')
-      }
-
       let extractionInputPath = detectionInputPath
       let extractionUsesStream = detectionUsesStream
       if (source.kind === 'youtube') {
@@ -321,7 +328,27 @@ export async function extractSlidesForSource({
         }
       }
 
-      const combined = mergeTimestamps(detection.timestamps, [], settings.minDurationSeconds)
+      const interval = buildIntervalTimestamps({
+        durationSeconds: detection.durationSeconds,
+        existingCount: detection.timestamps.length,
+        minDurationSeconds: settings.minDurationSeconds,
+        maxSlides: settings.maxSlides,
+      })
+      if (interval?.timestamps.length) {
+        warnings.push(
+          `Scene detection sparse; added ${interval.timestamps.length} interval samples (~${interval.intervalSeconds.toFixed(
+            1
+          )}s)`
+        )
+      }
+      const combined = mergeTimestamps(
+        detection.timestamps,
+        interval?.timestamps ?? [],
+        settings.minDurationSeconds
+      )
+      if (combined.length === 0) {
+        throw new Error('No slides detected; try adjusting slide extraction settings.')
+      }
       const trimmed = applyMaxSlidesFilter(
         combined.map((timestamp, index) => ({ index: index + 1, timestamp, imagePath: '' })),
         settings.maxSlides,
@@ -563,7 +590,7 @@ async function detectSlideTimestamps({
   warnings: string[]
   workers: number
   sampleCount: number
-}): Promise<{ timestamps: number[]; autoTune: SlideAutoTune }> {
+}): Promise<{ timestamps: number[]; autoTune: SlideAutoTune; durationSeconds: number | null }> {
   const probeStartedAt = Date.now()
   const videoInfo = await probeVideoInfo({
     ffprobePath,
@@ -643,7 +670,7 @@ async function detectSlideTimestamps({
         strategy: 'none',
       }
 
-  return { timestamps, autoTune }
+  return { timestamps, autoTune, durationSeconds: videoInfo.durationSeconds }
 }
 
 async function extractFramesAtTimestamps({
@@ -1072,7 +1099,7 @@ function applyMinDurationFilter(
       filtered.push(slide)
       lastTimestamp = slide.timestamp
     } else {
-      void fs.rm(slide.imagePath, { force: true })
+      void fs.rm(slide.imagePath, { force: true }).catch(() => {})
     }
   }
   if (filtered.length < slides.length) {
@@ -1099,6 +1126,30 @@ function mergeTimestamps(
     }
   }
   return result
+}
+
+function buildIntervalTimestamps({
+  durationSeconds,
+  existingCount,
+  minDurationSeconds,
+  maxSlides,
+}: {
+  durationSeconds: number | null
+  existingCount: number
+  minDurationSeconds: number
+  maxSlides: number
+}): { timestamps: number[]; intervalSeconds: number } | null {
+  if (!durationSeconds || durationSeconds <= 0) return null
+  const maxCount = Math.max(1, Math.floor(maxSlides))
+  const targetCount = Math.min(maxCount, Math.max(3, Math.round(durationSeconds / 120)))
+  if (existingCount >= targetCount) return null
+  const intervalSeconds = Math.max(minDurationSeconds, durationSeconds / targetCount)
+  if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) return null
+  const timestamps: number[] = []
+  for (let t = 0; t < durationSeconds; t += intervalSeconds) {
+    timestamps.push(t)
+  }
+  return { timestamps, intervalSeconds }
 }
 
 async function runProcessCapture({
@@ -1216,7 +1267,7 @@ function applyMaxSlidesFilter(
   const removed = slides.slice(maxSlides)
   for (const slide of removed) {
     if (slide.imagePath) {
-      void fs.rm(slide.imagePath, { force: true })
+      void fs.rm(slide.imagePath, { force: true }).catch(() => {})
     }
   }
   warnings.push(`Trimmed slides to max ${maxSlides}`)

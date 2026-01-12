@@ -12,6 +12,7 @@
 - Chrome automation: expand navigate tool with list/switch tab support and return matching skills after navigation.
 - CLI: transcribe local audio/video files with mtime-aware transcript cache invalidation (thanks @mvance!).
 - Browser extension: add Firefox sidebar build + multi-browser config (#31, thanks @vlnd0).
+- Slides: extract slide screenshots + OCR for YouTube/direct video URLs in the CLI + extension (#41, thanks @philippb).
 
 ### Fixes
 
@@ -19,6 +20,7 @@
 - Chrome Side Panel chat: clear streaming placeholders on errors/aborts.
 - Cache: include transcript timestamp requests in extract cache keys so timed summaries don’t reuse plain transcript content.
 - Automation: require userScripts (no isolated-world fallback), with improved guidance and in-panel permission notice.
+- Slides: honor explicit tool paths and add interval sampling fallback when scene detection is sparse.
 
 ## 0.9.0 - 2025-12-31
 
