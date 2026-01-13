@@ -561,6 +561,19 @@ header {
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   background: color-mix(in srgb, var(--surface) 70%, transparent);
+  position: relative;
+}
+
+.summarizeSlidesToggle__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+  white-space: nowrap;
 }
 
 .summarizeSlidesToggle button {

@@ -810,11 +810,6 @@ export default defineBackground(() => {
     opts?: { checkRecovery?: boolean }
   ) => {
     const settings = await loadSettings()
-    const logPanel = (event: string, detail?: Record<string, unknown>) => {
-      if (!settings.extendedLogging) return
-      const payload = detail ? { event, ...detail } : { event }
-      console.debug('[summarize][panel:bg]', payload)
-    }
     const tab = await getActiveTab(session.windowId)
     const health = await daemonHealth()
     const authed = settings.token.trim() ? await daemonPing(settings.token.trim()) : { ok: false }

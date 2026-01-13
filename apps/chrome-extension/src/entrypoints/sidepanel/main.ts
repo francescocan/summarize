@@ -1056,7 +1056,7 @@ const SLIDE_CUSTOM_LENGTH_PATTERN = /^(?<value>\d+(?:\.\d+)?)(?<unit>k|m)?$/i
 
 function resolveLengthTargetCharacters(lengthValue: string): number | null {
   const normalized = lengthValue.trim().toLowerCase()
-  if (Object.prototype.hasOwnProperty.call(SUMMARY_LENGTH_SPECS, normalized)) {
+  if (Object.hasOwn(SUMMARY_LENGTH_SPECS, normalized)) {
     const spec = SUMMARY_LENGTH_SPECS[normalized as keyof typeof SUMMARY_LENGTH_SPECS]
     return spec?.targetCharacters ?? null
   }
@@ -1074,13 +1074,15 @@ function clampNumber(value: number, min: number, max: number): number {
 }
 
 function resolveSlideTextBudget(lengthValue: string): number {
-  const target = resolveLengthTargetCharacters(lengthValue) ?? SUMMARY_LENGTH_SPECS.short.targetCharacters
+  const target =
+    resolveLengthTargetCharacters(lengthValue) ?? SUMMARY_LENGTH_SPECS.short.targetCharacters
   const perSlide = Math.round(target / 15)
   return clampNumber(perSlide, SLIDE_TEXT_MIN_CHARS, SLIDE_TEXT_MAX_CHARS)
 }
 
 function resolveSlideWindowSeconds(lengthValue: string): number {
-  const target = resolveLengthTargetCharacters(lengthValue) ?? SUMMARY_LENGTH_SPECS.short.targetCharacters
+  const target =
+    resolveLengthTargetCharacters(lengthValue) ?? SUMMARY_LENGTH_SPECS.short.targetCharacters
   const window = Math.round(target / 100)
   return clampNumber(window, SLIDE_TEXT_WINDOW_MIN_SECONDS, SLIDE_TEXT_WINDOW_MAX_SECONDS)
 }

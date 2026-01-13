@@ -624,7 +624,8 @@ function SummarizeControl(props: SummarizeControlProps) {
         <select className="pickerHidden" {...api.getHiddenSelectProps()} />
       </div>
       {showSlidesTextToggle ? (
-        <div className="summarizeSlidesToggle" role="group" aria-label="Slides text source">
+        <fieldset className="summarizeSlidesToggle">
+          <legend className="summarizeSlidesToggle__label">Slides text source</legend>
           <button
             type="button"
             data-active={props.slidesTextMode === 'transcript' ? 'true' : 'false'}
@@ -639,7 +640,7 @@ function SummarizeControl(props: SummarizeControlProps) {
           >
             OCR
           </button>
-        </div>
+        </fieldset>
       ) : null}
     </div>
   )
