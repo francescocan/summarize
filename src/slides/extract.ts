@@ -176,12 +176,15 @@ export async function extractSlidesForSource({
       const onSlidesProgress = hooks?.onSlidesProgress
       if (!onSlidesProgress) return null
       let lastText = ''
+      let lastPercent = 0
       return (label: string, percent: number, detail?: string) => {
         const clamped = clamp(Math.round(percent), 0, 100)
+        const nextPercent = Math.max(lastPercent, clamped)
         const suffix = detail ? ` ${detail}` : ''
-        const text = `Slides: ${label}${suffix} ${clamped}%`
+        const text = `Slides: ${label}${suffix} ${nextPercent}%`
         if (text === lastText) return
         lastText = text
+        lastPercent = nextPercent
         onSlidesProgress(text)
       }
     })()
@@ -217,7 +220,7 @@ export async function extractSlidesForSource({
       await prepareSlidesDir(slidesDir)
       logSlidesTiming('prepare output dir', prepareStartedAt)
     }
-    reportSlidesProgress?.('detecting scenes', 5)
+    reportSlidesProgress?.('preparing source', 1)
 
     let detectionInputPath = source.url
     let detectionCleanup: (() => Promise<void>) | null = null
@@ -230,6 +233,7 @@ export async function extractSlidesForSource({
       }
       const ytDlp = ytDlpPath
       const format = resolveSlidesYtDlpDetectFormat(env)
+      reportSlidesProgress?.('fetching video', 4)
       const streamStartedAt = Date.now()
       try {
         const streamUrl = await resolveYoutubeStreamUrl({
@@ -243,6 +247,7 @@ export async function extractSlidesForSource({
         logSlidesTiming(`yt-dlp stream url (detect, format=${format})`, streamStartedAt)
       } catch (error) {
         warnings.push(`Failed to resolve detection stream URL: ${String(error)}`)
+        reportSlidesProgress?.('downloading video', 6)
         const downloadStartedAt = Date.now()
         const downloaded = await downloadYoutubeVideo({
           ytDlpPath: ytDlp,
@@ -258,6 +263,7 @@ export async function extractSlidesForSource({
 
     try {
       const ffmpegStartedAt = Date.now()
+      reportSlidesProgress?.('detecting scenes', frameStartPercent)
       const detect = async () =>
         detectSlideTimestamps({
           ffmpegPath: ffmpegBinary,
@@ -284,6 +290,7 @@ export async function extractSlidesForSource({
           throw new Error('Slides for YouTube require yt-dlp (set YT_DLP_PATH or install yt-dlp).')
         }
         const format = resolveSlidesYtDlpDetectFormat(env)
+        reportSlidesProgress?.('downloading video', 6)
         const downloadStartedAt = Date.now()
         const downloaded = await downloadYoutubeVideo({
           ytDlpPath,
@@ -306,6 +313,7 @@ export async function extractSlidesForSource({
           throw new Error('Slides for YouTube require yt-dlp (set YT_DLP_PATH or install yt-dlp).')
         }
         const format = resolveSlidesYtDlpDetectFormat(env)
+        reportSlidesProgress?.('downloading video', 6)
         const downloadStartedAt = Date.now()
         const downloaded = await downloadYoutubeVideo({
           ytDlpPath,
@@ -331,6 +339,7 @@ export async function extractSlidesForSource({
         const extractionFormat = resolveSlidesYtDlpExtractFormat(env)
         const detectionFormat = resolveSlidesYtDlpDetectFormat(env)
         if (resolveSlidesExtractStream(env)) {
+          reportSlidesProgress?.('fetching video', 6)
           const streamStartedAt = Date.now()
           try {
             const streamUrl = await resolveYoutubeStreamUrl({
@@ -351,6 +360,7 @@ export async function extractSlidesForSource({
         }
 
         if (extractionInputPath === detectionInputPath && extractionFormat !== detectionFormat) {
+          reportSlidesProgress?.('downloading video', 6)
           const extractDownloadStartedAt = Date.now()
           const extracted = await downloadYoutubeVideo({
             ytDlpPath,
@@ -430,6 +440,7 @@ export async function extractSlidesForSource({
           throw new Error('Slides for YouTube require yt-dlp (set YT_DLP_PATH or install yt-dlp).')
         }
         const extractionFormat = resolveSlidesYtDlpExtractFormat(env)
+        reportSlidesProgress?.('downloading video', 6)
         const extractDownloadStartedAt = Date.now()
         const downloaded = await downloadYoutubeVideo({
           ytDlpPath,

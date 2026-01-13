@@ -29,6 +29,7 @@
 - Slides: enable the toggle on YouTube watch/short URLs (and other media-preferring URLs), switch the control to Video by default, and auto-refresh a summary when slides are turned on so slide extraction actually runs.
 - Slides: stream slide extraction status to the panel and show a spinner on the slides toggle while slides are processing.
 - Slides: include percent progress for slide extraction in the panel status/progress bar.
+- Slides: show video fetch/download progress before slide extraction starts.
 - Slides: fold the UI into “Video / Video + Slides” in the Summarize selector and stream slide images incrementally as they are extracted.
 
 ## 0.9.0 - 2025-12-31
