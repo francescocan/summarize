@@ -510,13 +510,21 @@ export async function runDaemonServer({
         const source = url.searchParams.get('source')?.trim() || 'daemon'
         const tailParam = url.searchParams.get('tail')?.trim() || ''
         const tail = clampNumber(Number(tailParam || '800'), 50, 5000)
-        const maxBytes = clampNumber(Number(url.searchParams.get('maxBytes') ?? '262144'), 16_384, 2_000_000)
+        const maxBytes = clampNumber(
+          Number(url.searchParams.get('maxBytes') ?? '262144'),
+          16_384,
+          2_000_000
+        )
 
         const sources: Record<
           string,
           { filePath: string; format: 'json' | 'pretty' | 'text'; enabled?: boolean }
         > = {
-          daemon: { filePath: daemonLogFile, format: daemonLogger.config?.format ?? 'json', enabled: daemonLogger.enabled },
+          daemon: {
+            filePath: daemonLogFile,
+            format: daemonLogger.config?.format ?? 'json',
+            enabled: daemonLogger.enabled,
+          },
           stdout: { filePath: daemonLogPaths.stdoutPath, format: 'text' },
           stderr: { filePath: daemonLogPaths.stderrPath, format: 'text' },
         }
@@ -685,8 +693,7 @@ export async function runDaemonServer({
           retries: obj.retries,
           maxOutputTokens: obj.maxOutputTokens,
         })
-            const slidesSettings = resolveSlidesSettings({ env, request: obj })
-            session.slidesRequested = Boolean(slidesSettings)
+        const slidesSettings = resolveSlidesSettings({ env, request: obj })
         const diagnostics = parseDiagnostics(obj.diagnostics)
         const includeContentLog = daemonLogger.enabled && diagnostics.includeContent
         const hasText = Boolean(textContent.trim())
@@ -766,6 +773,7 @@ export async function runDaemonServer({
         }
 
         const session = createSession()
+        session.slidesRequested = Boolean(slidesSettings)
         sessions.set(session.id, session)
         const requestLogger = daemonLogger.getSubLogger('daemon.summarize', {
           requestId: session.id,
@@ -1477,9 +1485,7 @@ export async function runDaemonServer({
 
         const hasStatusEvent = session.slidesBuffer.some((entry) => entry.event.event === 'status')
         if (!hasStatusEvent && session.slidesLastStatus) {
-          res.write(
-            encodeSseEvent({ event: 'status', data: { text: session.slidesLastStatus } })
-          )
+          res.write(encodeSseEvent({ event: 'status', data: { text: session.slidesLastStatus } }))
         }
 
         if (session.slidesDone) {
