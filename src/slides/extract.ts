@@ -525,6 +525,20 @@ export function parseShowinfoTimestamp(line: string): number | null {
   return ts
 }
 
+export function resolveExtractedTimestamp({
+  requested,
+  actual,
+}: {
+  requested: number
+  actual: number | null
+}): number {
+  if (!Number.isFinite(requested)) return 0
+  if (actual == null || !Number.isFinite(actual) || actual < 0) return requested
+  // With -ss before -i, showinfo PTS resets near 0. Treat small values as offsets.
+  if (actual <= 5) return requested + actual
+  return actual
+}
+
 async function prepareSlidesDir(slidesDir: string): Promise<void> {
   await fs.mkdir(slidesDir, { recursive: true })
   const entries = await fs.readdir(slidesDir)
@@ -873,8 +887,7 @@ async function extractFramesAtTimestamps({
   const resolveSegmentBounds = (segment: { start: number; end: number | null } | null) => {
     if (!segment) return null
     const start = Math.max(0, segment.start)
-    const end =
-      typeof segment.end === 'number' && Number.isFinite(segment.end) ? segment.end : null
+    const end = typeof segment.end === 'number' && Number.isFinite(segment.end) ? segment.end : null
     if (end != null && end <= start) return null
     return { start, end }
   }
@@ -914,7 +927,11 @@ async function extractFramesAtTimestamps({
     timestamp: number,
     outputPath: string,
     opts?: { timeoutMs?: number }
-  ): Promise<{ slide: SlideImage; quality: FrameQuality | null; actualTimestamp: number | null }> => {
+  ): Promise<{
+    slide: SlideImage
+    quality: FrameQuality | null
+    actualTimestamp: number | null
+  }> => {
     const stats: FrameStats = { ymin: null, ymax: null, yavg: null }
     let actualTimestamp: number | null = null
     const effectiveTimeoutMs =
@@ -979,8 +996,10 @@ async function extractFramesAtTimestamps({
           : clampedTimestamp
     const outputPath = path.join(outputDir, `slide_${String(index + 1).padStart(4, '0')}.png`)
     const extracted = await extractFrame(safeTimestamp, outputPath)
-    const resolvedTimestamp =
-      extracted.actualTimestamp != null ? extracted.actualTimestamp : safeTimestamp
+    const resolvedTimestamp = resolveExtractedTimestamp({
+      requested: safeTimestamp,
+      actual: extracted.actualTimestamp,
+    })
     const delta = resolvedTimestamp - safeTimestamp
     if (Math.abs(delta) >= 0.25) {
       logSlides(
@@ -988,7 +1007,12 @@ async function extractFramesAtTimestamps({
       )
     }
     const imageVersion = Date.now()
-    onSlide?.({ index: index + 1, timestamp: resolvedTimestamp, imagePath: outputPath, imageVersion })
+    onSlide?.({
+      index: index + 1,
+      timestamp: resolvedTimestamp,
+      imagePath: outputPath,
+      imageVersion,
+    })
     return {
       index: index + 1,
       timestamp: resolvedTimestamp,
@@ -1595,10 +1619,7 @@ function findSceneSegment(segments: SceneSegment[], timestamp: number): SceneSeg
   return segments[segments.length - 1] ?? null
 }
 
-function adjustTimestampWithinSegment(
-  timestamp: number,
-  segment: SceneSegment | null
-): number {
+function adjustTimestampWithinSegment(timestamp: number, segment: SceneSegment | null): number {
   if (!segment) return timestamp
   const start = Math.max(0, segment.start)
   const end = segment.end

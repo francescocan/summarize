@@ -1,4 +1,9 @@
-export { extractSlidesForSource, parseShowinfoTimestamp, resolveSlideSource } from './extract.js'
+export {
+  extractSlidesForSource,
+  parseShowinfoTimestamp,
+  resolveExtractedTimestamp,
+  resolveSlideSource,
+} from './extract.js'
 export type { SlideSettings, SlideSettingsInput } from './settings.js'
 export { resolveSlideSettings } from './settings.js'
 export type {
