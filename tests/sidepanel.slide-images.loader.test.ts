@@ -217,4 +217,53 @@ describe('slide image loader', () => {
     expect(img.dataset.slideRetryCount).toBe('0')
     debugSpy.mockRestore()
   })
+
+  it('evicts least-recently-used cached entries when over capacity', async () => {
+    globalThis.IntersectionObserver = undefined
+    const fetchSpy = vi.fn(async () => {
+      const blob = new Blob(['ok'], { type: 'image/png' })
+      return new Response(blob, {
+        status: 200,
+        headers: { 'x-summarize-slide-ready': '1' },
+      })
+    })
+    globalThis.fetch = fetchSpy
+    const objectUrls = ['blob:1', 'blob:2', 'blob:3']
+    URL.createObjectURL = vi.fn(() => objectUrls.shift() ?? 'blob:next')
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+
+    const loader = createSlideImageLoader({
+      loadSettings: async () => ({ token: 't', extendedLogging: false }) as Settings,
+      maxCacheEntries: 2,
+    })
+
+    const makeImg = () => {
+      const wrapper = document.createElement('div')
+      wrapper.className = 'slideStrip__thumb'
+      const img = document.createElement('img')
+      wrapper.appendChild(img)
+      document.body.appendChild(wrapper)
+      return img
+    }
+
+    const img1 = makeImg()
+    loader.observe(img1, 'http://127.0.0.1:8787/v1/slides/abc/1')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const img2 = makeImg()
+    loader.observe(img2, 'http://127.0.0.1:8787/v1/slides/abc/2')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const img1b = makeImg()
+    loader.observe(img1b, 'http://127.0.0.1:8787/v1/slides/abc/1')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const img3 = makeImg()
+    loader.observe(img3, 'http://127.0.0.1:8787/v1/slides/abc/3')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3)
+    expect(revokeSpy).toHaveBeenCalledWith('blob:2')
+    revokeSpy.mockRestore()
+  })
 })
