@@ -1413,6 +1413,10 @@ async function load() {
   applyTheme({ scheme: s.colorScheme, mode: s.colorMode })
   await loadSkills()
   await updateAutomationPermissionsUi()
+  if (resolveActiveTab() === 'logs' && tokenEl.value.trim()) {
+    void refreshLogs()
+    if (logsAutoEl.checked) startLogsAuto()
+  }
   isInitializing = false
 }
 
