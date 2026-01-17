@@ -993,7 +993,6 @@ function resetSummaryView({
   stopSlidesStream()
   refreshSummarizeControl()
   if (!preserveChat) {
-    slideImageLoader.clearCache()
     resetChatState()
   }
 }

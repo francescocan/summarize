@@ -22,13 +22,35 @@ type SlideImageLoader = {
 }
 
 export function createSlideImageLoader(
-  options: { loadSettings?: () => Promise<Settings> } = {}
+  options: { loadSettings?: () => Promise<Settings>; maxCacheEntries?: number } = {}
 ): SlideImageLoader {
   const loadSettingsFn = options.loadSettings ?? loadSettings
-  const slideImageCache = new Map<string, string>()
+  const slideImageCache = new Map<string, { objectUrl: string; lastUsed: number }>()
   const slideImagePending = new Map<string, Promise<string | null>>()
   const slideImageRetryTimers = new WeakMap<HTMLImageElement, number>()
   const slideImageObserverEntries = new WeakMap<HTMLImageElement, { imageUrl: string }>()
+  const maxCacheEntries = Math.max(10, options.maxCacheEntries ?? 160)
+  let cacheUseCounter = 0
+
+  const recordCacheUse = (imageUrl: string, objectUrl: string) => {
+    cacheUseCounter += 1
+    slideImageCache.set(imageUrl, { objectUrl, lastUsed: cacheUseCounter })
+  }
+
+  const pruneCache = () => {
+    const excess = slideImageCache.size - maxCacheEntries
+    if (excess <= 0) return
+    const entries = Array.from(slideImageCache.entries()).sort(
+      (a, b) => a[1].lastUsed - b[1].lastUsed
+    )
+    for (let i = 0; i < excess; i += 1) {
+      const entry = entries[i]
+      if (!entry) continue
+      const [url, cached] = entry
+      URL.revokeObjectURL(cached.objectUrl)
+      slideImageCache.delete(url)
+    }
+  }
 
   const markSlideImageLoaded = (img: HTMLImageElement) => {
     img.dataset.loaded = 'true'
@@ -37,8 +59,8 @@ export function createSlideImageLoader(
   }
 
   const clearCache = () => {
-    for (const url of slideImageCache.values()) {
-      URL.revokeObjectURL(url)
+    for (const cached of slideImageCache.values()) {
+      URL.revokeObjectURL(cached.objectUrl)
     }
     slideImageCache.clear()
     slideImagePending.clear()
@@ -47,7 +69,10 @@ export function createSlideImageLoader(
   const resolveSlideImageUrl = async (imageUrl: string): Promise<string | null> => {
     if (!imageUrl) return null
     const cached = slideImageCache.get(imageUrl)
-    if (cached) return cached
+    if (cached) {
+      recordCacheUse(imageUrl, cached.objectUrl)
+      return cached.objectUrl
+    }
     const pending = slideImagePending.get(imageUrl)
     if (pending) return pending
 
@@ -72,7 +97,8 @@ export function createSlideImageLoader(
         }
         const blob = await res.blob()
         const objectUrl = URL.createObjectURL(blob)
-        slideImageCache.set(imageUrl, objectUrl)
+        recordCacheUse(imageUrl, objectUrl)
+        pruneCache()
         return objectUrl
       } catch {
         return null
@@ -94,7 +120,8 @@ export function createSlideImageLoader(
     }
     const cached = slideImageCache.get(imageUrl)
     if (cached) {
-      if (img.src !== cached) img.src = cached
+      if (img.src !== cached.objectUrl) img.src = cached.objectUrl
+      recordCacheUse(imageUrl, cached.objectUrl)
       markSlideImageLoaded(img)
       return
     }
