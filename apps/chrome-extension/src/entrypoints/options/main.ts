@@ -66,7 +66,10 @@ const logsSourceEl = byId<HTMLSelectElement>('logsSource')
 const logsTailEl = byId<HTMLInputElement>('logsTail')
 const logsRefreshBtn = byId<HTMLButtonElement>('logsRefresh')
 const logsAutoEl = byId<HTMLInputElement>('logsAuto')
-const logsOutputEl = byId<HTMLPreElement>('logsOutput')
+const logsOutputEl = byId<HTMLDivElement>('logsOutput')
+const logsRawEl = byId<HTMLPreElement>('logsRaw')
+const logsTableEl = byId<HTMLTableElement>('logsTable')
+const logsParsedEl = byId<HTMLInputElement>('logsParsed')
 const logsMetaEl = byId<HTMLDivElement>('logsMeta')
 const tabsRoot = byId<HTMLDivElement>('tabs')
 const tabButtons = Array.from(tabsRoot.querySelectorAll<HTMLButtonElement>('[data-tab]'))
@@ -91,6 +94,8 @@ let importedSkills: Skill[] = []
 
 let logsAutoTimer = 0
 let logsRefreshInFlight = false
+let logsRawLines: string[] = []
+let logsEntries: LogEntry[] = []
 let isInitializing = true
 let saveTimer = 0
 let saveInFlight = false
@@ -105,8 +110,191 @@ const setLogsMeta = (text: string) => {
   logsMetaEl.textContent = text
 }
 
-const setLogsOutput = (text: string) => {
-  logsOutputEl.textContent = text
+type LogLevel = 'info' | 'warn' | 'error' | 'verbose'
+type LogEntry = {
+  raw: string
+  level: LogLevel
+  time: string
+  event: string
+  details: string
+  isJson: boolean
+}
+
+const LOG_LEVELS: LogLevel[] = ['info', 'warn', 'error', 'verbose']
+const LOG_LEVEL_LABELS: Record<LogLevel, string> = {
+  info: 'INFO',
+  warn: 'WARN',
+  error: 'ERROR',
+  verbose: 'VERBOSE',
+}
+const LOG_LEVEL_ALIASES: Record<string, LogLevel> = {
+  info: 'info',
+  warn: 'warn',
+  warning: 'warn',
+  error: 'error',
+  err: 'error',
+  debug: 'verbose',
+  trace: 'verbose',
+  verbose: 'verbose',
+}
+const LOG_DETAIL_IGNORE = new Set([
+  'date',
+  'event',
+  'level',
+  'loglevel',
+  'loglevelname',
+  'meta',
+  'name',
+  'hostname',
+  'parentNames',
+  'pid',
+  'runtime',
+  'runtimeVersion',
+])
+
+const logsLevelInputs = Array.from(
+  document.querySelectorAll<HTMLInputElement>('input[data-log-level]')
+)
+
+const formatLogTime = (value: unknown): string => {
+  if (typeof value !== 'string') return ''
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ''
+  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+const normalizeLogLevel = (value: unknown): LogLevel => {
+  const raw = typeof value === 'string' ? value.toLowerCase().trim() : ''
+  return LOG_LEVEL_ALIASES[raw] ?? 'info'
+}
+
+const formatDetailValue = (value: unknown): string => {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]'
+    const preview = value.slice(0, 3).map((item) => String(item))
+    return value.length > 3 ? `${preview.join(', ')} …` : preview.join(', ')
+  }
+  return ''
+}
+
+const buildLogDetails = (obj: Record<string, unknown>): string => {
+  const details: string[] = []
+  for (const [key, value] of Object.entries(obj)) {
+    const normalized = key.toLowerCase()
+    if (LOG_DETAIL_IGNORE.has(normalized)) continue
+    if (value == null) continue
+    if (typeof value === 'object' && !Array.isArray(value)) continue
+    const formatted = formatDetailValue(value)
+    if (!formatted) continue
+    details.push(`${key}=${formatted}`)
+  }
+  return details.join(' · ')
+}
+
+const parseLogLine = (line: string): LogEntry | null => {
+  const trimmed = line.trim()
+  if (!trimmed) return null
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const obj = JSON.parse(trimmed) as Record<string, unknown>
+      const level = normalizeLogLevel(obj.logLevelName ?? obj.level ?? obj.logLevel) ?? 'info'
+      return {
+        raw: trimmed,
+        level,
+        time: formatLogTime(obj.date),
+        event: typeof obj.event === 'string' ? obj.event : '',
+        details: buildLogDetails(obj),
+        isJson: true,
+      }
+    } catch {
+      // fall through to raw handling
+    }
+  }
+  const lower = trimmed.toLowerCase()
+  const level =
+    lower.includes('error') || lower.startsWith('err')
+      ? 'error'
+      : lower.includes('warn')
+        ? 'warn'
+        : 'info'
+  return {
+    raw: trimmed,
+    level,
+    time: '',
+    event: '',
+    details: '',
+    isJson: false,
+  }
+}
+
+const isAtBottom = (el: HTMLElement) => el.scrollTop + el.clientHeight >= el.scrollHeight - 6
+
+const scrollToBottom = (el: HTMLElement) => {
+  el.scrollTop = el.scrollHeight
+}
+
+const renderLogs = () => {
+  const stickToBottom = isAtBottom(logsOutputEl)
+  const parsedEnabled = logsParsedEl.checked
+  const enabledLevels = new Set(
+    logsLevelInputs
+      .filter((input) => input.checked)
+      .map((input) => input.dataset.logLevel)
+      .filter((level): level is LogLevel => Boolean(level))
+  )
+  const activeLevels = enabledLevels.size > 0 ? enabledLevels : new Set(LOG_LEVELS)
+
+  if (!parsedEnabled) {
+    logsTableEl.hidden = true
+    logsRawEl.hidden = false
+    logsRawEl.textContent = logsRawLines.join('\n')
+    if (stickToBottom) scrollToBottom(logsOutputEl)
+    return
+  }
+
+  logsTableEl.hidden = false
+  logsRawEl.hidden = true
+  const body = logsTableEl.tBodies[0]
+  const rows = document.createDocumentFragment()
+  let rendered = 0
+  for (const entry of logsEntries) {
+    if (!activeLevels.has(entry.level)) continue
+    const row = document.createElement('tr')
+    const timeCell = document.createElement('td')
+    timeCell.textContent = entry.time || '—'
+    const levelCell = document.createElement('td')
+    levelCell.textContent = LOG_LEVEL_LABELS[entry.level]
+    levelCell.className = `level ${entry.level}`
+    const eventCell = document.createElement('td')
+    eventCell.textContent = entry.event || (entry.isJson ? 'log' : 'raw')
+    const detailCell = document.createElement('td')
+    detailCell.textContent = entry.details || entry.raw
+    detailCell.className = 'details'
+    row.append(timeCell, levelCell, eventCell, detailCell)
+    rows.append(row)
+    rendered += 1
+  }
+  if (rendered === 0) {
+    const row = document.createElement('tr')
+    const cell = document.createElement('td')
+    cell.colSpan = 4
+    cell.textContent = 'No matching log entries.'
+    cell.className = 'details'
+    row.append(cell)
+    rows.append(row)
+  }
+  body.replaceChildren(rows)
+  if (stickToBottom) scrollToBottom(logsOutputEl)
+}
+
+const setLogsLines = (lines: string[]) => {
+  logsRawLines = lines
+  logsEntries = lines
+    .map((line) => parseLogLine(line))
+    .filter((entry): entry is LogEntry => !!entry)
+  renderLogs()
 }
 
 const resolveActiveTab = (): string | null => {
@@ -139,7 +327,7 @@ async function refreshLogs(isAuto = false) {
   const token = tokenEl.value.trim()
   if (!token) {
     setLogsMeta('Add token to load daemon logs.')
-    setLogsOutput('')
+    setLogsLines([])
     return
   }
   logsRefreshInFlight = true
@@ -160,7 +348,7 @@ async function refreshLogs(isAuto = false) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null
       const message = body?.error ? body.error : `${res.status} ${res.statusText}`
       setLogsMeta(message)
-      setLogsOutput('')
+      setLogsLines([])
       return
     }
     const json = (await res.json()) as {
@@ -174,7 +362,7 @@ async function refreshLogs(isAuto = false) {
     }
     if (!json?.ok || !Array.isArray(json.lines)) {
       setLogsMeta('No logs returned.')
-      setLogsOutput('')
+      setLogsLines([])
       return
     }
     const summaryParts: string[] = []
@@ -187,11 +375,11 @@ async function refreshLogs(isAuto = false) {
     if (json.truncated) summaryParts.push('tail truncated')
     if (json.warning) summaryParts.push(json.warning)
     setLogsMeta(summaryParts.join(' · '))
-    setLogsOutput(json.lines.join('\n'))
+    setLogsLines(json.lines)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     setLogsMeta(message)
-    setLogsOutput('')
+    setLogsLines([])
   } finally {
     logsRefreshInFlight = false
   }
@@ -1369,6 +1557,16 @@ logsTailEl.addEventListener('change', () => {
   logsTailEl.value = String(next)
   void refreshLogs()
 })
+
+logsParsedEl.addEventListener('change', () => {
+  renderLogs()
+})
+
+for (const input of logsLevelInputs) {
+  input.addEventListener('change', () => {
+    renderLogs()
+  })
+}
 
 logsAutoEl.addEventListener('change', () => {
   if (logsAutoEl.checked) {

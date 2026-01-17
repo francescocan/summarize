@@ -514,19 +514,116 @@ form {
   gap: 8px 12px;
 }
 
+.logsFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.logsToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.logsLevelFilters {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.logsLevelFilters label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.logsFilterLabel {
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .logsOutput {
   margin: 0;
-  padding: 12px;
+  padding: 8px 10px;
   min-height: 220px;
   max-height: 320px;
   overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 70%, transparent);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.logsRaw {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.logsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.logsTable th,
+.logsTable td {
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.logsTable thead th {
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--muted);
+}
+
+.logsTable tbody tr + tr td {
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.logsTable td.level {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.logsTable td.level.info {
+  color: var(--accent);
+}
+
+.logsTable td.level.warn {
+  color: var(--warning);
+}
+
+.logsTable td.level.error {
+  color: var(--danger);
+}
+
+.logsTable td.level.verbose {
+  color: var(--muted);
+}
+
+.logsTable td.details {
+  color: var(--muted);
+  word-break: break-word;
 }
 
 .sectionTitle {

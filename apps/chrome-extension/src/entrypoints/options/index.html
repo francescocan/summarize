@@ -405,8 +405,46 @@
                 <input id="logsTail" type="number" min="100" max="5000" step="100" value="800" />
               </label>
             </div>
+            <div class="logsFilters">
+              <label class="logsToggle">
+                <input id="logsParsed" type="checkbox" checked />
+                <span>Parsed</span>
+              </label>
+              <div class="logsLevelFilters">
+                <span class="logsFilterLabel">Levels</span>
+                <label>
+                  <input type="checkbox" data-log-level="info" checked />
+                  <span>Info</span>
+                </label>
+                <label>
+                  <input type="checkbox" data-log-level="warn" checked />
+                  <span>Warn</span>
+                </label>
+                <label>
+                  <input type="checkbox" data-log-level="error" checked />
+                  <span>Error</span>
+                </label>
+                <label>
+                  <input type="checkbox" data-log-level="verbose" checked />
+                  <span>Verbose</span>
+                </label>
+              </div>
+            </div>
             <div id="logsMeta" class="hint"></div>
-            <pre id="logsOutput" class="logsOutput" aria-live="polite"></pre>
+            <div id="logsOutput" class="logsOutput" aria-live="polite">
+              <table id="logsTable" class="logsTable" hidden>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Level</th>
+                    <th>Event</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+              <pre id="logsRaw" class="logsRaw" hidden></pre>
+            </div>
           </section>
         </div>
 
