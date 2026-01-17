@@ -8,6 +8,7 @@ const samplePayload = (overrides: Partial<PanelCachePayload> = {}): PanelCachePa
   tabId: 1,
   url: 'https://example.com',
   title: 'Example',
+  runId: 'run-1',
   summaryMarkdown: 'Hello',
   summaryFromCache: true,
   lastMeta: { inputSummary: 'Summary', model: 'model', modelLabel: 'label' },

@@ -126,4 +126,40 @@ describe('sidepanel slides hydrator', () => {
 
     expect(received).toEqual([livePayload])
   })
+
+  it('hydrates snapshot when cache is loaded without slides', async () => {
+    const payload: SseSlidesData = {
+      sourceUrl: 'https://example.com',
+      sourceId: 'cache',
+      sourceKind: 'youtube',
+      ocrAvailable: false,
+      slides: [
+        {
+          index: 1,
+          timestamp: 5,
+          imageUrl: 'http://127.0.0.1:8787/v1/slides/cache/1',
+          ocrText: null,
+          ocrConfidence: null,
+        },
+      ],
+    }
+    let snapshotCalls = 0
+    const received: SseSlidesData[] = []
+    const hydrator = createSlidesHydrator({
+      getToken: async () => 'token',
+      onSlides: (slides) => received.push(slides),
+      streamFetchImpl: async () =>
+        new Response(streamFromEvents([{ event: 'done', data: {} }]), { status: 200 }),
+      snapshotFetchImpl: async () => {
+        snapshotCalls += 1
+        return new Response(JSON.stringify({ ok: true, slides: payload }), { status: 200 })
+      },
+    })
+
+    hydrator.syncFromCache({ runId: 'run-cache', summaryFromCache: true, hasSlides: false })
+    await waitFor(() => received.length === 1)
+
+    expect(snapshotCalls).toBe(1)
+    expect(received).toEqual([payload])
+  })
 })
