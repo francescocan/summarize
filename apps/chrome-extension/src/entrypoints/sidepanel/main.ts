@@ -19,7 +19,7 @@ import { type ChatHistoryLimits, compactChatHistory } from './chat-state'
 import { createHeaderController } from './header-controller'
 import { mountSidepanelLengthPicker, mountSidepanelPickers, mountSummarizeControl } from './pickers'
 import { createSlideImageLoader, normalizeSlideImageUrl } from './slide-images'
-import { createSlidesStreamController } from './slides-stream-controller'
+import { createSlidesHydrator } from './slides-hydrator'
 import { createStreamController } from './stream-controller'
 import type { ChatMessage, PanelPhase, PanelState, RunStart, UiState } from './types'
 
@@ -300,7 +300,7 @@ function hideSlideNotice() {
 }
 
 function stopSlidesStream() {
-  slidesStreamController.abort()
+  slidesHydrator.stop()
   setSlidesBusy(false)
 }
 
@@ -2597,10 +2597,10 @@ function startSlidesStream(run: RunStart) {
   }
   hideSlideNotice()
   setSlidesBusy(true)
-  void slidesStreamController.start(run.id)
+  void slidesHydrator.start(run.id)
 }
 
-const slidesStreamController = createSlidesStreamController({
+const slidesHydrator = createSlidesHydrator({
   getToken: async () => (await loadSettings()).token,
   onSlides: (data) => {
     applySlidesPayload(data)
@@ -2612,6 +2612,10 @@ const slidesStreamController = createSlidesStreamController({
     const message = friendlyFetchError(err, 'Slides stream failed')
     showSlideNotice(message)
     return message
+  },
+  onSnapshotError: (err) => {
+    const message = err instanceof Error ? err.message : String(err)
+    console.debug('[summarize] slides snapshot failed', message)
   },
   onDone: () => {
     setSlidesBusy(false)
@@ -2673,10 +2677,11 @@ const streamController = createStreamController({
     )
   },
   onSlides: (data) => {
-    applySlidesPayload(data)
+    slidesHydrator.handlePayload(data)
   },
   onSummaryFromCache: (value) => {
     panelState.summaryFromCache = value
+    slidesHydrator.handleSummaryFromCache(value)
     if (value === true) {
       headerController.stopProgress()
     } else if (value === false && isStreaming()) {
