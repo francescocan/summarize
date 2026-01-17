@@ -10,6 +10,7 @@ import { readPresetOrCustomValue, resolvePresetOrCustom } from '../../lib/combo'
 import { defaultSettings, loadSettings, saveSettings } from '../../lib/settings'
 import { applyTheme, type ColorMode, type ColorScheme } from '../../lib/theme'
 import { mountCheckbox } from '../../ui/zag-checkbox'
+import { createLogsViewer } from './logs-viewer'
 import { mountOptionsPickers } from './pickers'
 
 declare const __SUMMARIZE_GIT_HASH__: string
@@ -92,10 +93,6 @@ let editingSkill: Skill | null = null
 let importConflicts: Array<{ skill: Skill; selected: boolean }> = []
 let importedSkills: Skill[] = []
 
-let logsAutoTimer = 0
-let logsRefreshInFlight = false
-let logsRawLines: string[] = []
-let logsEntries: LogEntry[] = []
 let isInitializing = true
 let saveTimer = 0
 let saveInFlight = false
@@ -106,284 +103,31 @@ const setStatus = (text: string) => {
   statusEl.textContent = text
 }
 
-const setLogsMeta = (text: string) => {
-  logsMetaEl.textContent = text
-}
-
-type LogLevel = 'info' | 'warn' | 'error' | 'verbose'
-type LogEntry = {
-  raw: string
-  level: LogLevel
-  time: string
-  event: string
-  details: string
-  isJson: boolean
-}
-
-const LOG_LEVELS: LogLevel[] = ['info', 'warn', 'error', 'verbose']
-const LOG_LEVEL_LABELS: Record<LogLevel, string> = {
-  info: 'INFO',
-  warn: 'WARN',
-  error: 'ERROR',
-  verbose: 'VERBOSE',
-}
-const LOG_LEVEL_ALIASES: Record<string, LogLevel> = {
-  info: 'info',
-  warn: 'warn',
-  warning: 'warn',
-  error: 'error',
-  err: 'error',
-  debug: 'verbose',
-  trace: 'verbose',
-  verbose: 'verbose',
-}
-const LOG_DETAIL_IGNORE = new Set([
-  'date',
-  'event',
-  'level',
-  'loglevel',
-  'loglevelname',
-  'meta',
-  'name',
-  'hostname',
-  'parentNames',
-  'pid',
-  'runtime',
-  'runtimeVersion',
-])
-
-const logsLevelInputs = Array.from(
-  document.querySelectorAll<HTMLInputElement>('input[data-log-level]')
-)
-
-const formatLogTime = (value: unknown): string => {
-  if (typeof value !== 'string') return ''
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return ''
-  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
-
-const normalizeLogLevel = (value: unknown): LogLevel => {
-  const raw = typeof value === 'string' ? value.toLowerCase().trim() : ''
-  return LOG_LEVEL_ALIASES[raw] ?? 'info'
-}
-
-const formatDetailValue = (value: unknown): string => {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (Array.isArray(value)) {
-    if (value.length === 0) return '[]'
-    const preview = value.slice(0, 3).map((item) => String(item))
-    return value.length > 3 ? `${preview.join(', ')} …` : preview.join(', ')
-  }
-  return ''
-}
-
-const buildLogDetails = (obj: Record<string, unknown>): string => {
-  const details: string[] = []
-  for (const [key, value] of Object.entries(obj)) {
-    const normalized = key.toLowerCase()
-    if (LOG_DETAIL_IGNORE.has(normalized)) continue
-    if (value == null) continue
-    if (typeof value === 'object' && !Array.isArray(value)) continue
-    const formatted = formatDetailValue(value)
-    if (!formatted) continue
-    details.push(`${key}=${formatted}`)
-  }
-  return details.join(' · ')
-}
-
-const parseLogLine = (line: string): LogEntry | null => {
-  const trimmed = line.trim()
-  if (!trimmed) return null
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-    try {
-      const obj = JSON.parse(trimmed) as Record<string, unknown>
-      const level = normalizeLogLevel(obj.logLevelName ?? obj.level ?? obj.logLevel) ?? 'info'
-      return {
-        raw: trimmed,
-        level,
-        time: formatLogTime(obj.date),
-        event: typeof obj.event === 'string' ? obj.event : '',
-        details: buildLogDetails(obj),
-        isJson: true,
-      }
-    } catch {
-      // fall through to raw handling
-    }
-  }
-  const lower = trimmed.toLowerCase()
-  const level =
-    lower.includes('error') || lower.startsWith('err')
-      ? 'error'
-      : lower.includes('warn')
-        ? 'warn'
-        : 'info'
-  return {
-    raw: trimmed,
-    level,
-    time: '',
-    event: '',
-    details: '',
-    isJson: false,
-  }
-}
-
-const isAtBottom = (el: HTMLElement) => el.scrollTop + el.clientHeight >= el.scrollHeight - 6
-
-const scrollToBottom = (el: HTMLElement) => {
-  el.scrollTop = el.scrollHeight
-}
-
-const renderLogs = () => {
-  const stickToBottom = isAtBottom(logsOutputEl)
-  const parsedEnabled = logsParsedEl.checked
-  const enabledLevels = new Set(
-    logsLevelInputs
-      .filter((input) => input.checked)
-      .map((input) => input.dataset.logLevel)
-      .filter((level): level is LogLevel => Boolean(level))
-  )
-  const activeLevels = enabledLevels.size > 0 ? enabledLevels : new Set(LOG_LEVELS)
-
-  if (!parsedEnabled) {
-    logsTableEl.hidden = true
-    logsRawEl.hidden = false
-    logsRawEl.textContent = logsRawLines.join('\n')
-    if (stickToBottom) scrollToBottom(logsOutputEl)
-    return
-  }
-
-  logsTableEl.hidden = false
-  logsRawEl.hidden = true
-  const body = logsTableEl.tBodies[0]
-  const rows = document.createDocumentFragment()
-  let rendered = 0
-  for (const entry of logsEntries) {
-    if (!activeLevels.has(entry.level)) continue
-    const row = document.createElement('tr')
-    const timeCell = document.createElement('td')
-    timeCell.textContent = entry.time || '—'
-    const levelCell = document.createElement('td')
-    levelCell.textContent = LOG_LEVEL_LABELS[entry.level]
-    levelCell.className = `level ${entry.level}`
-    const eventCell = document.createElement('td')
-    eventCell.textContent = entry.event || (entry.isJson ? 'log' : 'raw')
-    const detailCell = document.createElement('td')
-    detailCell.textContent = entry.details || entry.raw
-    detailCell.className = 'details'
-    row.append(timeCell, levelCell, eventCell, detailCell)
-    rows.append(row)
-    rendered += 1
-  }
-  if (rendered === 0) {
-    const row = document.createElement('tr')
-    const cell = document.createElement('td')
-    cell.colSpan = 4
-    cell.textContent = 'No matching log entries.'
-    cell.className = 'details'
-    row.append(cell)
-    rows.append(row)
-  }
-  body.replaceChildren(rows)
-  if (stickToBottom) scrollToBottom(logsOutputEl)
-}
-
-const setLogsLines = (lines: string[]) => {
-  logsRawLines = lines
-  logsEntries = lines
-    .map((line) => parseLogLine(line))
-    .filter((entry): entry is LogEntry => !!entry)
-  renderLogs()
-}
-
 const resolveActiveTab = (): string | null => {
   const active = tabButtons.find((button) => button.getAttribute('aria-selected') === 'true')
   return active?.dataset.tab ?? null
 }
 
-const normalizeTailCount = (value: string) => {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return 800
-  return Math.max(100, Math.min(5000, Math.round(parsed)))
-}
+const logsLevelInputs = Array.from(
+  document.querySelectorAll<HTMLInputElement>('input[data-log-level]')
+)
 
-function stopLogsAuto() {
-  if (logsAutoTimer) window.clearInterval(logsAutoTimer)
-  logsAutoTimer = 0
-}
-
-function startLogsAuto() {
-  stopLogsAuto()
-  logsAutoTimer = window.setInterval(() => {
-    if (resolveActiveTab() !== 'logs') return
-    void refreshLogs(true)
-  }, 2000)
-}
-
-async function refreshLogs(isAuto = false) {
-  if (logsRefreshInFlight) return
-  if (resolveActiveTab() !== 'logs') return
-  const token = tokenEl.value.trim()
-  if (!token) {
-    setLogsMeta('Add token to load daemon logs.')
-    setLogsLines([])
-    return
-  }
-  logsRefreshInFlight = true
-  const source = logsSourceEl.value.trim() || 'daemon'
-  const tail = normalizeTailCount(logsTailEl.value)
-  logsTailEl.value = String(tail)
-  if (!isAuto) {
-    setLogsMeta('Loading logs…')
-  }
-  try {
-    const url = new URL('http://127.0.0.1:8787/v1/logs')
-    url.searchParams.set('source', source)
-    url.searchParams.set('tail', String(tail))
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: string } | null
-      const message = body?.error ? body.error : `${res.status} ${res.statusText}`
-      setLogsMeta(message)
-      setLogsLines([])
-      return
-    }
-    const json = (await res.json()) as {
-      ok: boolean
-      lines?: string[]
-      truncated?: boolean
-      sizeBytes?: number
-      mtimeMs?: number
-      warning?: string
-      format?: string
-    }
-    if (!json?.ok || !Array.isArray(json.lines)) {
-      setLogsMeta('No logs returned.')
-      setLogsLines([])
-      return
-    }
-    const summaryParts: string[] = []
-    if (typeof json.sizeBytes === 'number') {
-      summaryParts.push(`size ${Math.round(json.sizeBytes / 1024)}kb`)
-    }
-    if (typeof json.mtimeMs === 'number') {
-      summaryParts.push(`updated ${new Date(json.mtimeMs).toLocaleTimeString()}`)
-    }
-    if (json.truncated) summaryParts.push('tail truncated')
-    if (json.warning) summaryParts.push(json.warning)
-    setLogsMeta(summaryParts.join(' · '))
-    setLogsLines(json.lines)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    setLogsMeta(message)
-    setLogsLines([])
-  } finally {
-    logsRefreshInFlight = false
-  }
-}
+const logsViewer = createLogsViewer({
+  elements: {
+    sourceEl: logsSourceEl,
+    tailEl: logsTailEl,
+    refreshBtn: logsRefreshBtn,
+    autoEl: logsAutoEl,
+    outputEl: logsOutputEl,
+    rawEl: logsRawEl,
+    tableEl: logsTableEl,
+    parsedEl: logsParsedEl,
+    metaEl: logsMetaEl,
+    levelInputs: logsLevelInputs,
+  },
+  getToken: () => tokenEl.value.trim(),
+  isActive: () => resolveActiveTab() === 'logs',
+})
 
 const setActiveTab = (tabId: string) => {
   if (!tabIds.has(tabId)) return
@@ -398,10 +142,9 @@ const setActiveTab = (tabId: string) => {
   }
   localStorage.setItem(tabStorageKey, tabId)
   if (tabId === 'logs') {
-    void refreshLogs()
-    if (logsAutoEl.checked) startLogsAuto()
+    logsViewer.handleTabActivated()
   } else {
-    stopLogsAuto()
+    logsViewer.handleTabDeactivated()
   }
 }
 
@@ -1413,9 +1156,8 @@ async function load() {
   applyTheme({ scheme: s.colorScheme, mode: s.colorMode })
   await loadSkills()
   await updateAutomationPermissionsUi()
-  if (resolveActiveTab() === 'logs' && tokenEl.value.trim()) {
-    void refreshLogs()
-    if (logsAutoEl.checked) startLogsAuto()
+  if (resolveActiveTab() === 'logs') {
+    logsViewer.handleTokenChanged()
   }
   isInitializing = false
 }
@@ -1426,6 +1168,7 @@ tokenEl.addEventListener('input', () => {
   refreshTimer = window.setTimeout(() => {
     void refreshModelPresets(tokenEl.value)
     void checkDaemonStatus(tokenEl.value)
+    logsViewer.handleTokenChanged()
   }, 350)
   scheduleAutoSave(600)
 })
@@ -1548,41 +1291,35 @@ fontSizeEl.addEventListener('input', () => {
   scheduleAutoSave(300)
 })
 
-logsRefreshBtn.addEventListener('click', () => {
-  void refreshLogs()
-})
-
 logsSourceEl.addEventListener('change', () => {
-  void refreshLogs()
+  void logsViewer.refresh()
 })
 
 logsTailEl.addEventListener('change', () => {
-  const next = normalizeTailCount(logsTailEl.value)
-  logsTailEl.value = String(next)
-  void refreshLogs()
+  void logsViewer.refresh()
 })
 
 logsParsedEl.addEventListener('change', () => {
-  renderLogs()
+  logsViewer.render()
 })
 
 for (const input of logsLevelInputs) {
   input.addEventListener('change', () => {
-    renderLogs()
+    logsViewer.render()
   })
 }
 
 logsAutoEl.addEventListener('change', () => {
   if (logsAutoEl.checked) {
-    startLogsAuto()
-    void refreshLogs()
+    logsViewer.startAuto()
+    void logsViewer.refresh()
   } else {
-    stopLogsAuto()
+    logsViewer.stopAuto()
   }
 })
 
 window.addEventListener('beforeunload', () => {
-  stopLogsAuto()
+  logsViewer.stopAuto()
 })
 
 formEl.addEventListener('submit', (e) => {
