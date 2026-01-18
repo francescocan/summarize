@@ -92,38 +92,49 @@ export async function summarizeMediaFile(
 See: https://github.com/openai/whisper for setup details`)
   }
 
-  const absolutePath = resolvePath(args.sourceLabel)
+  // For URLs, skip local file validation - yt-dlp will handle the download
+  const isUrl = args.sourceKind === 'asset-url' || args.sourceLabel.startsWith('http')
 
-  // Get file modification time for cache invalidation (after path resolution)
-  const fileMtime = getFileModificationTime(absolutePath)
+  let absolutePath: string
+  let fileMtime: number | null = null
 
-  // Validate file size before attempting transcription
-  try {
-    const stats = statSync(absolutePath)
-    const fileSizeBytes = stats.size
-    const maxSizeBytes = 500 * 1024 * 1024 // 500 MB
+  if (isUrl) {
+    // For URLs, use the URL directly - no local path resolution needed
+    absolutePath = args.sourceLabel
+  } else {
+    absolutePath = resolvePath(args.sourceLabel)
 
-    if (fileSizeBytes === 0) {
-      throw new Error('Media file is empty (0 bytes). Please provide a valid audio/video file.')
-    }
+    // Get file modification time for cache invalidation (after path resolution)
+    fileMtime = getFileModificationTime(absolutePath)
 
-    if (fileSizeBytes > maxSizeBytes) {
-      const fileSizeMB = Math.round(fileSizeBytes / (1024 * 1024))
+    // Validate file size before attempting transcription
+    try {
+      const stats = statSync(absolutePath)
+      const fileSizeBytes = stats.size
+      const maxSizeBytes = 500 * 1024 * 1024 // 500 MB
+
+      if (fileSizeBytes === 0) {
+        throw new Error('Media file is empty (0 bytes). Please provide a valid audio/video file.')
+      }
+
+      if (fileSizeBytes > maxSizeBytes) {
+        const fileSizeMB = Math.round(fileSizeBytes / (1024 * 1024))
+        throw new Error(
+          `Media file is too large (${fileSizeMB} MB). Maximum supported size is 500 MB.`
+        )
+      }
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message.includes('empty') || error.message.includes('large'))
+      ) {
+        throw error // Re-throw our validation errors
+      }
+      // For other statSync errors (e.g., file not found), let them bubble up
       throw new Error(
-        `Media file is too large (${fileSizeMB} MB). Maximum supported size is 500 MB.`
+        `Unable to access media file: ${error instanceof Error ? error.message : 'Unknown error'}`
       )
     }
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.message.includes('empty') || error.message.includes('large'))
-    ) {
-      throw error // Re-throw our validation errors
-    }
-    // For other statSync errors (e.g., file not found), let them bubble up
-    throw new Error(
-      `Unable to access media file: ${error instanceof Error ? error.message : 'Unknown error'}`
-    )
   }
 
   const cacheMode = ctx.cache.mode
@@ -172,10 +183,9 @@ See: https://github.com/openai/whisper for setup details`)
   })
 
   try {
-    // Convert local file path to file:// URL for transcript resolution
-    // This is required because the generic transcript provider passes the URL to yt-dlp,
-    // which needs a proper file:// URL to handle local files
-    const fileUrl = pathToFileURL(absolutePath).href
+    // For URLs, use directly. For local files, convert to file:// URL.
+    // yt-dlp can handle both http(s) URLs and file:// URLs.
+    const fileUrl = isUrl ? absolutePath : pathToFileURL(absolutePath).href
 
     // Fetch the link content (will trigger transcription for media)
     // Using file:// URL ensures the provider chain can handle local files properly
