@@ -177,6 +177,66 @@ export async function withUrlAsset(
 ): Promise<boolean> {
   if (!url || isYoutubeUrl) return false
 
+  // For remote media URLs (by extension), route directly to summarizeMediaFile.
+  // This avoids the 50MB limit in loadRemoteAsset - yt-dlp handles streaming download.
+  if (isTranscribableExtension(url) && ctx.summarizeMediaFile) {
+    const filename = (() => {
+      try {
+        return path.basename(new URL(url).pathname) || 'media'
+      } catch {
+        return 'media'
+      }
+    })()
+    const stopOscProgress = startOscProgress({
+      label: 'Transcribing media',
+      indeterminate: true,
+      env: ctx.env,
+      isTty: ctx.progressEnabled,
+      write: (data: string) => ctx.stderr.write(data),
+    })
+    const spinner = startSpinner({
+      text: `Transcribing ${filename}…`,
+      enabled: ctx.progressEnabled,
+      stream: ctx.stderr,
+    })
+    let stopped = false
+    const stopProgress = () => {
+      if (stopped) return
+      stopped = true
+      spinner.stopAndClear()
+      stopOscProgress()
+    }
+    const pauseProgressLine = () => {
+      spinner.pause()
+      return () => spinner.resume()
+    }
+    ctx.setClearProgressBeforeStdout(pauseProgressLine)
+    try {
+      const dim = (value: string) => ansi('90', value, ctx.progressEnabled)
+      const accent = (value: string) => ansi('36', value, ctx.progressEnabled)
+      await ctx.summarizeMediaFile({
+        sourceKind: 'asset-url',
+        sourceLabel: url,
+        attachment: {
+          kind: 'file',
+          filename,
+          mediaType: 'audio/mpeg',
+          bytes: new Uint8Array(0),
+        },
+        onModelChosen: (modelId) => {
+          if (!ctx.progressEnabled) return
+          spinner.setText(
+            `Transcribing ${filename} ${dim('(')}${dim('model: ')}${accent(modelId)}${dim(')')}…`
+          )
+        },
+      })
+      return true
+    } finally {
+      ctx.clearProgressIfCurrent(pauseProgressLine)
+      stopProgress()
+    }
+  }
+
   const kind = await classifyUrl({ url, fetchImpl: ctx.trackedFetch, timeoutMs: ctx.timeoutMs })
   if (kind.kind !== 'asset') return false
 
@@ -231,6 +291,7 @@ export async function handleUrlAsset(
   url: string,
   isYoutubeUrl: boolean
 ): Promise<boolean> {
+  // Media URL handling is now in withUrlAsset
   return withUrlAsset(ctx, url, isYoutubeUrl, async ({ loaded, spinner }) => {
     const dim = (value: string) => ansi('90', value, ctx.progressEnabled)
     const accent = (value: string) => ansi('36', value, ctx.progressEnabled)
