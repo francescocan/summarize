@@ -118,6 +118,9 @@ export async function runUrlFlow({
     enabled: flags.progressEnabled,
     stream: io.stderr,
   })
+  if (!hooks.onSlidesProgress && flags.progressEnabled) {
+    hooks.onSlidesProgress = (text: string) => spinner.setText(text)
+  }
   const websiteProgress = createWebsiteProgress({
     enabled: flags.progressEnabled,
     spinner,
