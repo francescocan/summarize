@@ -197,7 +197,7 @@ export function buildLinkSummaryPrompt({
   const listGuidanceLine =
     'Use short paragraphs; use bullet lists only when they improve scanability; avoid rigid templates.'
   const quoteGuidanceLine =
-    'When there is a standout line, include 1-2 short direct quotes (max 25 words each) in Markdown italics with quotation marks. Any quote not italicized is invalid—omit quotes instead. Never quote ads, sponsors, or boilerplate, and never mention them or that you skipped/ignored them.'
+    'When there is a standout line, include 1-2 short direct quotes (max 25 words each) in Markdown italics with quotation marks. Do not use plain quotation marks; any quote must be italicized or omitted. Never quote ads, sponsors, or boilerplate, and never mention them or that you skipped/ignored them.'
   const sponsorInstruction =
     hasTranscript || (slides && slides.count > 0)
       ? 'Ignore sponsor messages, ads, promos, and calls-to-action (including podcast ad reads). Do not mention them or that they were skipped/ignored. Treat them as if they do not exist. If a slide segment is purely sponsor/ad content, leave that slide marker with no text.'
@@ -205,6 +205,7 @@ export function buildLinkSummaryPrompt({
 
   const baseInstructions = [
     audienceLine,
+    sponsorInstruction,
     directive.guidance,
     formattingLine,
     headingInstruction,
@@ -218,7 +219,6 @@ export function buildLinkSummaryPrompt({
     'Format the answer in Markdown and obey the length-specific formatting above.',
     listGuidanceLine,
     quoteGuidanceLine,
-    sponsorInstruction,
     slideInstruction,
     'Base everything strictly on the provided content and never invent details.',
     timestampInstruction,

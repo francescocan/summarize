@@ -61,13 +61,13 @@ export function buildFileSummaryPrompt({
     'Summarize the attached file.',
     'Be factual and do not invent details.',
     shouldIgnoreSponsors
-      ? 'Ignore sponsor messages, ads, promos, and calls-to-action (including podcast ad reads); do not summarize them.'
+      ? 'Ignore sponsor messages, ads, promos, and calls-to-action (including podcast ad reads). Do not mention them or that you skipped/ignored them.'
       : '',
     directive.guidance,
     directive.formatting,
     'Format the answer in Markdown.',
     'Use short paragraphs; use bullet lists only when they improve scanability; avoid rigid templates.',
-    'When there is a standout line, include 1-2 short direct quotes (max 25 words each) in Markdown italics with quotation marks. Any quote not italicized is invalid—omit quotes instead. Never quote ads, sponsors, or boilerplate, and never mention them or that you skipped/ignored them.',
+    'When there is a standout line, include 1-2 short direct quotes (max 25 words each) in Markdown italics with quotation marks. Do not use plain quotation marks; any quote must be italicized or omitted. Never quote ads, sponsors, or boilerplate, and never mention them or that you skipped/ignored them.',
     'Do not use emojis.',
     presetLengthLine,
     maxCharactersLine,
@@ -147,13 +147,13 @@ export function buildFileTextSummaryPrompt({
     'Summarize the file content below.',
     'Be factual and do not invent details.',
     shouldIgnoreSponsors
-      ? 'Ignore sponsor messages, ads, promos, and calls-to-action (including podcast ad reads); do not summarize them.'
+      ? 'Ignore sponsor messages, ads, promos, and calls-to-action (including podcast ad reads). Do not mention them or that you skipped/ignored them.'
       : '',
     directive.guidance,
     directive.formatting,
     'Format the answer in Markdown.',
     'Use short paragraphs; use bullet lists only when they improve scanability; avoid rigid templates.',
-    'When there is a standout line, include 1-2 short direct quotes (max 25 words each) in Markdown italics with quotation marks. Any quote not italicized is invalid—omit quotes instead. Never quote ads, sponsors, or boilerplate, and never mention them or that you skipped/ignored them.',
+    'When there is a standout line, include 1-2 short direct quotes (max 25 words each) in Markdown italics with quotation marks. Do not use plain quotation marks; any quote must be italicized or omitted. Never quote ads, sponsors, or boilerplate, and never mention them or that you skipped/ignored them.',
     'Do not use emojis.',
     presetLengthLine,
     maxCharactersLine,
