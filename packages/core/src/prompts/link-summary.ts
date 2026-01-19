@@ -221,6 +221,7 @@ export function buildLinkSummaryPrompt({
     quoteGuidanceLine,
     slideInstruction,
     'Base everything strictly on the provided content and never invent details.',
+    'Final check: remove any sponsor/ad references. Ensure any quoted text is italicized; if not, remove the quotes.',
     timestampInstruction,
     shareGuidance,
   ]

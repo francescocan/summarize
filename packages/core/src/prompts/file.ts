@@ -73,6 +73,7 @@ export function buildFileSummaryPrompt({
     maxCharactersLine,
     contentLengthLine,
     formatOutputLanguageInstruction(outputLanguage ?? { kind: 'auto' }),
+    'Final check: remove any sponsor/ad references. Ensure any quoted text is italicized; if not, remove the quotes.',
     'Return only the summary.',
   ]
     .filter((line) => typeof line === 'string' && line.trim().length > 0)
@@ -158,6 +159,7 @@ export function buildFileTextSummaryPrompt({
     presetLengthLine,
     maxCharactersLine,
     formatOutputLanguageInstruction(outputLanguage ?? { kind: 'auto' }),
+    'Final check: remove any sponsor/ad references. Ensure any quoted text is italicized; if not, remove the quotes.',
     'Return only the summary.',
   ]
     .filter((line) => typeof line === 'string' && line.trim().length > 0)
