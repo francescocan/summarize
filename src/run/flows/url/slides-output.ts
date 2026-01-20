@@ -16,7 +16,6 @@ import type { SummaryStreamHandler } from '../../summary-engine.js'
 import { isRichTty, markdownRenderWidth, supportsColor } from '../../terminal.js'
 import {
   buildTimestampUrl,
-  deriveSlideTitle,
   formatOsc8Link,
   formatTimestamp,
   splitSlideTitleFromText,
@@ -423,8 +422,7 @@ export function createSlidesSummaryStreamHandler({
       return
     }
     const body = parsed.body || text
-    const titleWords = parsed.title?.split(/\s+/).filter(Boolean).length ?? 0
-    const title = parsed.title && titleWords >= 1 ? parsed.title : deriveSlideTitle(body)
+    const title = parsed.title ?? null
     pendingSlide = null
     await renderSlideBlock(index, title)
     if (body.trim()) pushVisible(body)

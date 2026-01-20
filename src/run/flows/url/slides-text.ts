@@ -68,8 +68,6 @@ export const deriveSlideTitle = (text: string): string => {
 
 export const splitSlideTitleFromText = ({
   text,
-  slideIndex,
-  total,
 }: {
   text: string
   slideIndex: number
@@ -83,35 +81,13 @@ export const splitSlideTitleFromText = ({
     .filter(Boolean)
   if (lines.length === 0) return { title: null, body: '' }
   const firstLine = lines[0] ?? ''
-  const headingMatch = firstLine.match(/^#{1,6}\s+(.*)$/)
-  if (headingMatch) {
-    const title = collapseLineWhitespace(headingMatch[1] ?? '').trim()
-    const body = lines.slice(1).join('\n').trim()
-    return { title: title || null, body }
-  }
-
   const titleMatch = firstLine.match(/^title\s*:\s*(.+)$/i)
-  if (titleMatch) {
-    const title = collapseLineWhitespace(titleMatch[1] ?? '').trim()
-    const body = lines.slice(1).join('\n').trim()
-    return { title: title || null, body }
+  if (!titleMatch) {
+    return { title: null, body: trimmed }
   }
-
-  const legacyMatch = firstLine.match(
-    /^(.*?)\s*[-–—]\s*Slide\s+(\d+)(?:\s*\/\s*(\d+))?(?:\s*[-–—]\s*[\d:]+)?\s*$/i
-  )
-  if (legacyMatch) {
-    const index = Number.parseInt(legacyMatch[2] ?? '', 10)
-    const count = legacyMatch[3] ? Number.parseInt(legacyMatch[3], 10) : null
-    const indexOk = Number.isFinite(index) && index === slideIndex
-    const countOk = count == null || !Number.isFinite(count) || count === total || total <= 0
-    if (indexOk && countOk) {
-      const title = collapseLineWhitespace(legacyMatch[1] ?? '').trim()
-      const body = lines.slice(1).join('\n').trim()
-      return { title: title || null, body }
-    }
-  }
-  return { title: null, body: trimmed }
+  const title = collapseLineWhitespace(titleMatch[1] ?? '').trim()
+  const body = lines.slice(1).join('\n').trim()
+  return { title: title || null, body }
 }
 
 export const ensureSlideTitleLine = ({
@@ -123,25 +99,9 @@ export const ensureSlideTitleLine = ({
   slide: SlideTimelineEntry
   total: number
 }): string => {
-  const trimmed = text.trim()
-  if (!trimmed) return ''
-  const lines = trimmed
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-  if (lines.length === 0) return ''
-  const firstLine = lines[0] ?? ''
-  if (hasSlideLabel(firstLine, slide.index, total)) return trimmed
-  const parsed = splitSlideTitleFromText({
-    text: trimmed,
-    slideIndex: slide.index,
-    total,
-  })
-  if (parsed.title) {
-    return parsed.body ? `Title: ${parsed.title}\n${parsed.body}` : `Title: ${parsed.title}`
-  }
-  const title = deriveSlideTitle(trimmed)
-  return `Title: ${title}\n${trimmed}`
+  void slide
+  void total
+  return text.trim()
 }
 
 export function findSlidesSectionStart(markdown: string): number | null {

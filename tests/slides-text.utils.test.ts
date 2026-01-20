@@ -113,7 +113,7 @@ describe('slides text helpers', () => {
     expect(coerced).toContain('Second slide text.')
   })
 
-  it('adds slide title lines when missing', () => {
+  it('does not invent slide title lines', () => {
     const slides = [{ index: 1, timestamp: 4 }]
     const coerced = coerceSummaryWithSlides({
       markdown: 'Intro\n\n[slide:1]\nThis segment explains the setup.',
@@ -121,7 +121,7 @@ describe('slides text helpers', () => {
       transcriptTimedText: null,
       lengthArg: { kind: 'preset', preset: 'short' },
     })
-    expect(coerced).toContain('Title:')
+    expect(coerced).not.toContain('Title:')
     expect(coerced).toContain('This segment explains the setup.')
   })
 
