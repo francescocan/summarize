@@ -167,6 +167,19 @@ export function createSlideImageLoader(
     }
     if (img.dataset.slideImageUrl !== imageUrl) return
     if (img.src !== resolved) img.src = resolved
+    const markLoaded = () => {
+      if (img.dataset.slideImageUrl !== imageUrl) return
+      markSlideImageLoaded(img)
+    }
+    markLoaded()
+    if (img.complete && img.naturalWidth > 0) {
+      markLoaded()
+    } else if (typeof img.decode === 'function') {
+      img
+        .decode()
+        .then(markLoaded)
+        .catch(() => {})
+    }
   }
 
   const slideImageObserver =

@@ -38,7 +38,7 @@ type PanelToBg =
   | { type: 'panel:rememberUrl'; url: string }
   | { type: 'panel:setAuto'; value: boolean }
   | { type: 'panel:setLength'; value: string }
-  | { type: 'panel:slides-context'; requestId: string }
+  | { type: 'panel:slides-context'; requestId: string; url?: string }
   | { type: 'panel:cache'; cache: PanelCachePayload }
   | { type: 'panel:get-cache'; requestId: string; tabId: number; url: string }
   | { type: 'panel:openOptions' }
@@ -1968,7 +1968,8 @@ export default defineBackground(() => {
         break
       case 'panel:slides-context':
         void (async () => {
-          const requestId = (raw as { requestId?: string }).requestId
+          const payload = raw as { requestId?: string; url?: string }
+          const requestId = payload.requestId
           if (!requestId) return
           const settings = await loadSettings()
           const logSlides = (event: string, detail?: Record<string, unknown>) => {
@@ -1983,18 +1984,25 @@ export default defineBackground(() => {
             })
             console.debug('[summarize][slides:bg]', payload)
           }
+          const requestedUrl =
+            typeof payload.url === 'string' && payload.url.trim().length > 0
+              ? payload.url.trim()
+              : null
           const tab = await getActiveTab(session.windowId)
-          if (!tab?.id || !canSummarizeUrl(tab.url)) {
+          const tabUrl = typeof tab?.url === 'string' ? tab.url : null
+          const targetUrl = requestedUrl ?? tabUrl
+          if (!targetUrl || !canSummarizeUrl(targetUrl)) {
             void send(session, {
               type: 'slides:context',
               requestId,
               ok: false,
               error: 'No active tab for slides.',
             })
-            logSlides('context:error', { reason: 'no-tab' })
+            logSlides('context:error', { reason: 'no-tab', url: targetUrl })
             return
           }
-          let cached = getCachedExtract(tab.id, tab.url ?? null)
+          const canUseCache = Boolean(tab?.id && tabUrl && urlsMatch(tabUrl, targetUrl))
+          let cached = canUseCache ? getCachedExtract(tab.id, tabUrl ?? null) : null
           let transcriptTimedText = cached?.transcriptTimedText ?? null
           if (!transcriptTimedText && settings.token.trim()) {
             try {
@@ -2005,7 +2013,7 @@ export default defineBackground(() => {
                   'content-type': 'application/json',
                 },
                 body: JSON.stringify({
-                  url: tab.url,
+                  url: targetUrl,
                   mode: 'url',
                   extractOnly: true,
                   timestamps: true,
@@ -2022,9 +2030,9 @@ export default defineBackground(() => {
               }
               transcriptTimedText = json.extracted?.transcriptTimedText ?? null
               if (transcriptTimedText) {
-                if (!cached) {
+                if (!cached && canUseCache && tab?.id && tabUrl) {
                   cached = {
-                    url: tab.url,
+                    url: tabUrl,
                     title: tab.title?.trim() ?? null,
                     text: '',
                     source: 'url',
@@ -2042,18 +2050,20 @@ export default defineBackground(() => {
                     slides: null,
                     diagnostics: null,
                   }
-                } else {
+                } else if (cached) {
                   cached = { ...cached, transcriptTimedText }
                 }
-                cachedExtracts.set(tab.id, cached)
+                if (cached && tab?.id) {
+                  cachedExtracts.set(tab.id, cached)
+                }
               }
               logSlides('context:fetch-transcript', {
                 ok: Boolean(transcriptTimedText),
-                url: tab.url,
+                url: targetUrl,
               })
             } catch (err) {
               logSlides('context:fetch-error', {
-                url: tab.url,
+                url: targetUrl,
                 error: err instanceof Error ? err.message : String(err),
               })
             }
@@ -2065,7 +2075,7 @@ export default defineBackground(() => {
             transcriptTimedText,
           })
           logSlides('context:ready', {
-            url: tab.url,
+            url: targetUrl,
             transcriptTimedText: Boolean(transcriptTimedText),
             slides: cached?.slides?.slides?.length ?? 0,
           })

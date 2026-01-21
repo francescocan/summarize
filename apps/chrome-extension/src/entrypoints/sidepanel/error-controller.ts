@@ -23,7 +23,8 @@ export type ErrorController = {
 
 const stripInvisible = (message: string) => message.replace(/[\u200B-\u200D\uFEFF]/g, '')
 
-const hasMeaningfulMessage = (message: string) => stripInvisible(message).trim().length > 0
+const hasMeaningfulMessage = (message: string) =>
+  stripInvisible(message).replace(/\s/g, '').length > 0
 
 const normalizeMessage = (message: string) => {
   const trimmed = stripInvisible(message).trim()

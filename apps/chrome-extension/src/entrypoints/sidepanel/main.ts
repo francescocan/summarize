@@ -56,7 +56,7 @@ type PanelToBg =
   | { type: 'panel:rememberUrl'; url: string }
   | { type: 'panel:setAuto'; value: boolean }
   | { type: 'panel:setLength'; value: string }
-  | { type: 'panel:slides-context'; requestId: string }
+  | { type: 'panel:slides-context'; requestId: string; url?: string }
   | { type: 'panel:cache'; cache: PanelCachePayload }
   | { type: 'panel:get-cache'; requestId: string; tabId: number; url: string }
   | { type: 'panel:openOptions' }
@@ -614,6 +614,9 @@ async function handleSummarizeControlChange(value: { mode: 'page' | 'video'; sli
   inputModeOverride = value.mode
   slidesEnabledValue = value.slides
   await patchSettings({ slidesEnabled: slidesEnabledValue })
+  if (slidesEnabledValue && (inputModeOverride ?? inputMode) === 'video') {
+    maybeApplyPendingSlidesSummary()
+  }
   if (autoValue && (value.mode !== prevMode || value.slides !== prevSlides)) {
     sendSummarize({ refresh: true })
   }
@@ -801,6 +804,10 @@ const setPhase = (phase: PanelPhase, opts?: { error?: string | null }) => {
   }
   if (phase !== 'connecting' && phase !== 'streaming') {
     headerController.stopProgress()
+  }
+  if (phase !== 'connecting' && phase !== 'streaming' && panelState.slides) {
+    rebuildSlideDescriptions()
+    queueSlidesRender()
   }
 }
 
@@ -1003,9 +1010,11 @@ async function syncWithActiveTab() {
 function resetSummaryView({
   preserveChat = false,
   clearRunId = true,
+  stopSlides = true,
 }: {
   preserveChat?: boolean
   clearRunId?: boolean
+  stopSlides?: boolean
 } = {}) {
   currentRunTabId = null
   renderEl.replaceChildren(renderSlidesHostEl, renderMarkdownHostEl)
@@ -1032,7 +1041,9 @@ function resetSummaryView({
   slideTitleByIndex = new Map()
   slideSummarySource = null
   slidesSeededSourceId = null
-  stopSlidesStream()
+  if (stopSlides) {
+    stopSlidesStream()
+  }
   refreshSummarizeControl()
   if (!preserveChat) {
     resetChatState()
@@ -1616,6 +1627,9 @@ const slidesTestHooks = (
       renderSlidesNow?: () => void
       applyUiState?: (state: UiState) => void
       forceRenderSlides?: () => void
+      showInlineError?: (message: string) => void
+      isInlineErrorVisible?: () => boolean
+      getInlineErrorMessage?: () => string
     }
   }
 ).__summarizeTestHooks
@@ -1667,6 +1681,11 @@ if (slidesTestHooks) {
     }
     return renderSlidesHostEl.children.length
   }
+  slidesTestHooks.showInlineError = (message) => {
+    errorController.showInlineError(message)
+  }
+  slidesTestHooks.isInlineErrorVisible = () => !inlineErrorEl.classList.contains('hidden')
+  slidesTestHooks.getInlineErrorMessage = () => inlineErrorMessageEl.textContent ?? ''
 }
 
 async function requestSlidesContext() {
@@ -1677,7 +1696,7 @@ async function requestSlidesContext() {
   slidesContextRequestId += 1
   const requestId = `slides-${slidesContextRequestId}`
   slidesContextUrl = sourceUrl
-  void send({ type: 'panel:slides-context', requestId })
+  void send({ type: 'panel:slides-context', requestId, url: sourceUrl ?? undefined })
 }
 
 const MAX_SLIDE_STRIP = 12
@@ -1742,6 +1761,9 @@ function renderSlideStrip(container: HTMLElement) {
     return
   }
   if (!panelState.slides) return
+  if (panelState.slides.slides.length > 0 && slideDescriptions.size === 0) {
+    rebuildSlideDescriptions()
+  }
   const allSlides = panelState.slides.slides
   const slides = slidesExpanded ? allSlides : allSlides.slice(0, MAX_SLIDE_STRIP)
   if (allSlides.length === 0 || slides.length === 0) {
@@ -1887,6 +1909,9 @@ function renderSlideGallery(container: HTMLElement) {
   if (!panelState.slides) {
     clearSlideGallery(container)
     return
+  }
+  if (panelState.slides.slides.length > 0 && slideDescriptions.size === 0) {
+    rebuildSlideDescriptions()
   }
   const slides = panelState.slides.slides
   if (slides.length === 0) {
@@ -2824,9 +2849,15 @@ function handleSlidesStatus(text: string) {
 
 function startSlidesStreamForRunId(runId: string) {
   const effectiveInputMode = inputModeOverride ?? inputMode
-  if (!slidesEnabledValue || effectiveInputMode !== 'video') {
+  const slidesAllowed = slidesEnabledValue || panelState.ui?.settings.slidesEnabled
+  if (!slidesAllowed) {
     stopSlidesStream()
     return
+  }
+  if (effectiveInputMode !== 'video') {
+    inputMode = 'video'
+    inputModeOverride = 'video'
+    refreshSummarizeControl()
   }
   hideSlideNotice()
   setSlidesBusy(true)
@@ -2841,11 +2872,17 @@ function startSlidesStream(run: RunStart) {
 
 function applySlidesSummaryMarkdown(markdown: string) {
   if (!markdown.trim()) return
-  if (!slidesEnabledValue) return
-  const effectiveInputMode = inputModeOverride ?? inputMode
-  if (effectiveInputMode !== 'video') return
   const currentUrl = panelState.currentSource?.url ?? activeTabUrl ?? null
   if (slidesSummaryUrl && currentUrl && !urlsMatch(slidesSummaryUrl, currentUrl)) return
+  if (!slidesEnabledValue) {
+    slidesSummaryPending = markdown
+    return
+  }
+  const effectiveInputMode = inputModeOverride ?? inputMode
+  if (effectiveInputMode !== 'video') {
+    slidesSummaryPending = markdown
+    return
+  }
   let output = markdown
   if (panelState.slides?.slides.length) {
     const lengthArg = resolveSlidesLengthArg(pickerSettings.length)
@@ -2868,6 +2905,7 @@ function applySlidesSummaryMarkdown(markdown: string) {
 
 function maybeApplyPendingSlidesSummary() {
   if (!slidesSummaryPending) return
+  if (panelState.phase === 'connecting' || panelState.phase === 'streaming') return
   const markdown = slidesSummaryPending
   slidesSummaryPending = null
   applySlidesSummaryMarkdown(markdown)
@@ -2875,9 +2913,15 @@ function maybeApplyPendingSlidesSummary() {
 
 function startSlidesSummaryStreamForRunId(runId: string, targetUrl?: string | null) {
   const effectiveInputMode = inputModeOverride ?? inputMode
-  if (!slidesEnabledValue || effectiveInputMode !== 'video') {
+  const slidesAllowed = slidesEnabledValue || panelState.ui?.settings.slidesEnabled
+  if (!slidesAllowed) {
     stopSlidesSummaryStream()
     return
+  }
+  if (effectiveInputMode !== 'video') {
+    inputMode = 'video'
+    inputModeOverride = 'video'
+    refreshSummarizeControl()
   }
   if (slidesSummaryRunId === runId) return
   stopSlidesSummaryStream()
@@ -2886,7 +2930,7 @@ function startSlidesSummaryStreamForRunId(runId: string, targetUrl?: string | nu
   slidesSummaryMarkdown = ''
   slidesSummaryHadError = false
   slidesSummaryComplete = false
-  slidesSummaryModel = panelState.lastMeta.model ?? panelState.ui?.settings.model ?? null
+  slidesSummaryModel = panelState.lastMeta.model ?? panelState.ui?.settings.model ?? 'auto'
   const url = targetUrl ?? panelState.currentSource?.url ?? activeTabUrl ?? ''
   void slidesSummaryController.start({
     id: runId,
@@ -2935,13 +2979,20 @@ const slidesSummaryController = createStreamController({
   idleTimeoutMessage: 'Slides summary stalled. The daemon may have stopped.',
   onRender: (markdown) => {
     slidesSummaryMarkdown = markdown
+    const effectiveInputMode = inputModeOverride ?? inputMode
+    if (slidesEnabledValue && effectiveInputMode === 'video' && panelState.slides) {
+      updateSlideSummaryFromMarkdown(markdown, { preserveIfEmpty: true, source: 'slides' })
+      if (panelState.summaryMarkdown) {
+        renderInlineSlides(renderMarkdownHostEl, { fallback: true })
+      }
+    }
   },
   onReset: () => {
     slidesSummaryMarkdown = ''
     slidesSummaryPending = null
     slidesSummaryHadError = false
     slidesSummaryComplete = false
-    slidesSummaryModel = panelState.lastMeta.model ?? panelState.ui?.settings.model ?? null
+    slidesSummaryModel = panelState.lastMeta.model ?? panelState.ui?.settings.model ?? 'auto'
   },
   onError: (err) => {
     slidesSummaryHadError = true
@@ -2968,7 +3019,7 @@ const streamController = createStreamController({
   onReset: () => {
     const preserveChat = preserveChatOnNextReset
     preserveChatOnNextReset = false
-    resetSummaryView({ preserveChat, clearRunId: false })
+    resetSummaryView({ preserveChat, clearRunId: false, stopSlides: false })
     {
       const fallbackModel = panelState.ui?.settings.model ?? null
       panelState.lastMeta = {
@@ -3434,11 +3485,26 @@ function updateControls(state: UiState) {
   automationEnabledValue = state.settings.automationEnabled
   slidesEnabledValue = state.settings.slidesEnabled
   slidesParallelValue = state.settings.slidesParallel
+  const fallbackModel = typeof state.settings.model === 'string' ? state.settings.model.trim() : ''
+  if (fallbackModel && (!panelState.lastMeta.model || !panelState.lastMeta.model.trim())) {
+    panelState.lastMeta = {
+      ...panelState.lastMeta,
+      model: fallbackModel,
+      modelLabel: fallbackModel,
+    }
+  }
+  if (slidesEnabledValue && nextMediaAvailable) {
+    inputMode = 'video'
+    inputModeOverride = 'video'
+  }
   if (state.settings.slidesLayout && state.settings.slidesLayout !== slidesLayoutValue) {
     setSlidesLayout(state.settings.slidesLayout)
   }
-  if (!automationEnabledValue) hideAutomationNotice()
+  if (automationEnabledValue) hideAutomationNotice()
   if (!slidesEnabledValue) hideSlideNotice()
+  if (slidesEnabledValue && (inputModeOverride ?? inputMode) === 'video') {
+    maybeApplyPendingSlidesSummary()
+  }
   applyChatEnabled()
   if (chatEnabledValue && activeTabId && chatController.getMessages().length === 0) {
     void restoreChatHistory()
