@@ -426,8 +426,7 @@ export async function runCli(
     (arg) => arg === '--slides' || arg === '--no-slides' || arg.startsWith('--slides=')
   )
   const slidesOcrExplicitlySet = normalizedArgv.some(
-    (arg) =>
-      arg === '--slides-ocr' || arg === '--no-slides-ocr' || arg.startsWith('--slides-ocr=')
+    (arg) => arg === '--slides-ocr' || arg === '--no-slides-ocr' || arg.startsWith('--slides-ocr=')
   )
   const slidesDirExplicitlySet = normalizedArgv.some(
     (arg) => arg === '--slides-dir' || arg.startsWith('--slides-dir=')

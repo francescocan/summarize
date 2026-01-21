@@ -1265,8 +1265,7 @@ export default defineBackground(() => {
         resolvedPayload.media?.hasVideo === true ||
         shouldPreferUrlMode(resolvedPayload.url))
     const wantsParallelSlides = wantsSlides && settings.slidesParallel
-    const summaryTimestamps =
-      wantsSummaryTimestamps || (wantsSlides && !wantsParallelSlides)
+    const summaryTimestamps = wantsSummaryTimestamps || (wantsSlides && !wantsParallelSlides)
     const slidesTimestamps = wantsSummaryTimestamps || wantsSlides
 
     const resolveSlidesForLength = (

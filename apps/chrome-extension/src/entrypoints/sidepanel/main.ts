@@ -3555,7 +3555,7 @@ function handleBgMessage(msg: BgToPanel) {
       const summarySource =
         slidesSummaryComplete && slidesSummaryMarkdown.trim()
           ? slidesSummaryMarkdown
-          : panelState.summaryMarkdown ?? ''
+          : (panelState.summaryMarkdown ?? '')
       if (summarySource) {
         updateSlideSummaryFromMarkdown(summarySource, {
           preserveIfEmpty: false,

@@ -759,9 +759,7 @@ async function startDaemonSummaryRun({
         ? {
             slides: true,
             slidesOcr: true,
-            ...(typeof slidesMax === 'number' && Number.isFinite(slidesMax)
-              ? { slidesMax }
-              : {}),
+            ...(typeof slidesMax === 'number' && Number.isFinite(slidesMax) ? { slidesMax } : {}),
           }
         : {}),
       maxCharacters: null,
@@ -1305,24 +1303,20 @@ test('sidepanel restores cached state when switching tabs', async ({
       slidesEnabled: true,
     })
     const page = await openExtensionPage(harness, 'sidepanel.html', '#title', () => {
-      ;(window as typeof globalThis & { __summarizeTestHooks?: Record<string, unknown> })
-        .__summarizeTestHooks = {}
+      ;(
+        window as typeof globalThis & { __summarizeTestHooks?: Record<string, unknown> }
+      ).__summarizeTestHooks = {}
     })
     await waitForPanelPort(page)
 
     const sseBody = (text: string) =>
-      [
-        'event: chunk',
-        `data: ${JSON.stringify({ text })}`,
-        '',
-        'event: done',
-        'data: {}',
-        '',
-      ].join('\n')
+      ['event: chunk', `data: ${JSON.stringify({ text })}`, '', 'event: done', 'data: {}', ''].join(
+        '\n'
+      )
     await page.route('http://127.0.0.1:8787/v1/summarize/**/events', async (route) => {
       const url = route.request().url()
       const match = url.match(/summarize\/([^/]+)\/events/)
-      const runId = match ? match[1] ?? '' : ''
+      const runId = match ? (match[1] ?? '') : ''
       const body = runId === 'run-a' ? sseBody('Summary A') : sseBody('Summary B')
       await route.fulfill({
         status: 200,
@@ -1479,8 +1473,9 @@ test('sidepanel switches between page, video, and slides modes', async ({
       slidesLayout: 'gallery',
     })
     const page = await openExtensionPage(harness, 'sidepanel.html', '#title', () => {
-      ;(window as typeof globalThis & { __summarizeTestHooks?: Record<string, unknown> })
-        .__summarizeTestHooks = {}
+      ;(
+        window as typeof globalThis & { __summarizeTestHooks?: Record<string, unknown> }
+      ).__summarizeTestHooks = {}
     })
     await waitForPanelPort(page)
 
@@ -1500,18 +1495,13 @@ test('sidepanel switches between page, video, and slides modes', async ({
     })
 
     const sseBody = (text: string) =>
-      [
-        'event: chunk',
-        `data: ${JSON.stringify({ text })}`,
-        '',
-        'event: done',
-        'data: {}',
-        '',
-      ].join('\n')
+      ['event: chunk', `data: ${JSON.stringify({ text })}`, '', 'event: done', 'data: {}', ''].join(
+        '\n'
+      )
     await page.route('http://127.0.0.1:8787/v1/summarize/**/events', async (route) => {
       const url = route.request().url()
       const match = url.match(/summarize\/([^/]+)\/events/)
-      const runId = match ? match[1] ?? '' : ''
+      const runId = match ? (match[1] ?? '') : ''
       const text =
         runId === 'run-page'
           ? 'Page summary'
@@ -1560,8 +1550,9 @@ test('sidepanel switches between page, video, and slides modes', async ({
 
     await page.waitForFunction(
       () => {
-        const hooks = (window as typeof globalThis & { __summarizeTestHooks?: { setSummarizeMode?: unknown } })
-          .__summarizeTestHooks
+        const hooks = (
+          window as typeof globalThis & { __summarizeTestHooks?: { setSummarizeMode?: unknown } }
+        ).__summarizeTestHooks
         return typeof hooks?.setSummarizeMode === 'function'
       },
       null,
@@ -1569,23 +1560,27 @@ test('sidepanel switches between page, video, and slides modes', async ({
     )
 
     const setSummarizeMode = async (mode: 'page' | 'video', slides: boolean) => {
-      await page.evaluate(async (payload) => {
-        const hooks = (
-          window as typeof globalThis & {
-            __summarizeTestHooks?: {
-              setSummarizeMode?: (payload: { mode: 'page' | 'video'; slides: boolean }) => Promise<
-                void
-              >
-              getSummarizeMode?: () => {
-                mode: 'page' | 'video'
-                slides: boolean
-                mediaAvailable: boolean
+      await page.evaluate(
+        async (payload) => {
+          const hooks = (
+            window as typeof globalThis & {
+              __summarizeTestHooks?: {
+                setSummarizeMode?: (payload: {
+                  mode: 'page' | 'video'
+                  slides: boolean
+                }) => Promise<void>
+                getSummarizeMode?: () => {
+                  mode: 'page' | 'video'
+                  slides: boolean
+                  mediaAvailable: boolean
+                }
               }
             }
-          }
-        ).__summarizeTestHooks
-        await hooks?.setSummarizeMode?.(payload)
-      }, { mode, slides })
+          ).__summarizeTestHooks
+          await hooks?.setSummarizeMode?.(payload)
+        },
+        { mode, slides }
+      )
     }
 
     const getSummarizeMode = async () =>
@@ -1644,9 +1639,9 @@ test('sidepanel switches between page, video, and slides modes', async ({
       },
     })
     await expect(page.locator('#render')).toContainText('Page summary')
-    await expect(page.locator('img.slideStrip__thumbImage, img.slideInline__thumbImage')).toHaveCount(
-      0
-    )
+    await expect(
+      page.locator('img.slideStrip__thumbImage, img.slideInline__thumbImage')
+    ).toHaveCount(0)
 
     await ensureMediaAvailable(false)
     await setSummarizeMode('video', false)
@@ -1665,9 +1660,9 @@ test('sidepanel switches between page, video, and slides modes', async ({
       },
     })
     await expect(page.locator('#render')).toContainText('Video summary')
-    await expect(page.locator('img.slideStrip__thumbImage, img.slideInline__thumbImage')).toHaveCount(
-      0
-    )
+    await expect(
+      page.locator('img.slideStrip__thumbImage, img.slideInline__thumbImage')
+    ).toHaveCount(0)
 
     await ensureMediaAvailable(true)
     await setSummarizeMode('video', true)
@@ -1728,9 +1723,7 @@ test('sidepanel switches between page, video, and slides modes', async ({
       hooks?.applySlidesPayload?.(payload)
     }, slidesPayload)
     await expect.poll(async () => (await getPanelSlideDescriptions(page)).length).toBe(2)
-    await expect
-      .poll(async () => (await getSummarizeMode())?.slides ?? false)
-      .toBe(true)
+    await expect.poll(async () => (await getSummarizeMode())?.slides ?? false).toBe(true)
     const getSlidesState = async () =>
       await page.evaluate(() => {
         const hooks = (
@@ -1791,9 +1784,9 @@ test('sidepanel switches between page, video, and slides modes', async ({
       },
     })
     await expect(page.locator('#render')).toContainText('Back summary')
-    await expect(page.locator('img.slideStrip__thumbImage, img.slideInline__thumbImage')).toHaveCount(
-      0
-    )
+    await expect(
+      page.locator('img.slideStrip__thumbImage, img.slideInline__thumbImage')
+    ).toHaveCount(0)
     await expect(page.locator('.slideGallery__text, .slideStrip__text')).toHaveCount(0)
 
     assertNoErrors(harness)
