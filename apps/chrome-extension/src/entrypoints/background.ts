@@ -193,7 +193,17 @@ const optionsWindowMargin = 20
 const MIN_CHAT_CHARS = 100
 const CHAT_FULL_TRANSCRIPT_MAX_CHARS = Number.MAX_SAFE_INTEGER
 const MAX_SLIDE_OCR_CHARS = 8000
-const DAEMON_STATUS_TIMEOUT_MS = 2500
+const DAEMON_STATUS_TIMEOUT_MS = 5000
+const DAEMON_STATUS_RETRY_DELAY_MS = 400
+const DAEMON_STATUS_MAX_ATTEMPTS = 2
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const shouldRetryDaemon = (err: unknown) => {
+  if (err instanceof DOMException && err.name === 'AbortError') return true
+  const message = err instanceof Error ? err.message : ''
+  return message.toLowerCase() === 'failed to fetch'
+}
 
 const formatSlideTimestamp = (seconds: number): string => {
   const safe = Math.max(0, Math.floor(seconds))
@@ -278,54 +288,70 @@ async function getActiveTab(windowId?: number): Promise<chrome.tabs.Tab | null> 
 }
 
 async function daemonHealth(): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), DAEMON_STATUS_TIMEOUT_MS)
-    const res = await fetch('http://127.0.0.1:8787/health', { signal: controller.signal })
-    clearTimeout(timeout)
-    if (!res.ok) return { ok: false, error: `${res.status} ${res.statusText}` }
-    return { ok: true }
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      return { ok: false, error: 'Timed out' }
-    }
-    const message = err instanceof Error ? err.message : 'health failed'
-    if (message.toLowerCase() === 'failed to fetch') {
-      return {
-        ok: false,
-        error:
-          'Failed to fetch (daemon unreachable or blocked by Chrome; try `summarize daemon status` and check ~/.summarize/logs/daemon.err.log)',
+  for (let attempt = 0; attempt < DAEMON_STATUS_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), DAEMON_STATUS_TIMEOUT_MS)
+      const res = await fetch('http://127.0.0.1:8787/health', { signal: controller.signal })
+      clearTimeout(timeout)
+      if (!res.ok) return { ok: false, error: `${res.status} ${res.statusText}` }
+      return { ok: true }
+    } catch (err) {
+      const shouldRetry = attempt < DAEMON_STATUS_MAX_ATTEMPTS - 1 && shouldRetryDaemon(err)
+      if (shouldRetry) {
+        await sleep(DAEMON_STATUS_RETRY_DELAY_MS * (attempt + 1))
+        continue
       }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return { ok: false, error: 'Timed out' }
+      }
+      const message = err instanceof Error ? err.message : 'health failed'
+      if (message.toLowerCase() === 'failed to fetch') {
+        return {
+          ok: false,
+          error:
+            'Failed to fetch (daemon unreachable or blocked by Chrome; try `summarize daemon status` and check ~/.summarize/logs/daemon.err.log)',
+        }
+      }
+      return { ok: false, error: message }
     }
-    return { ok: false, error: message }
   }
+  return { ok: false, error: 'Timed out' }
 }
 
 async function daemonPing(token: string): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), DAEMON_STATUS_TIMEOUT_MS)
-    const res = await fetch('http://127.0.0.1:8787/v1/ping', {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
-    })
-    clearTimeout(timeout)
-    if (!res.ok) return { ok: false, error: `${res.status} ${res.statusText}` }
-    return { ok: true }
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      return { ok: false, error: 'Timed out' }
-    }
-    const message = err instanceof Error ? err.message : 'ping failed'
-    if (message.toLowerCase() === 'failed to fetch') {
-      return {
-        ok: false,
-        error:
-          'Failed to fetch (daemon unreachable or blocked by Chrome; try `summarize daemon status`)',
+  for (let attempt = 0; attempt < DAEMON_STATUS_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), DAEMON_STATUS_TIMEOUT_MS)
+      const res = await fetch('http://127.0.0.1:8787/v1/ping', {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      })
+      clearTimeout(timeout)
+      if (!res.ok) return { ok: false, error: `${res.status} ${res.statusText}` }
+      return { ok: true }
+    } catch (err) {
+      const shouldRetry = attempt < DAEMON_STATUS_MAX_ATTEMPTS - 1 && shouldRetryDaemon(err)
+      if (shouldRetry) {
+        await sleep(DAEMON_STATUS_RETRY_DELAY_MS * (attempt + 1))
+        continue
       }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return { ok: false, error: 'Timed out' }
+      }
+      const message = err instanceof Error ? err.message : 'ping failed'
+      if (message.toLowerCase() === 'failed to fetch') {
+        return {
+          ok: false,
+          error:
+            'Failed to fetch (daemon unreachable or blocked by Chrome; try `summarize daemon status`)',
+        }
+      }
+      return { ok: false, error: message }
     }
-    return { ok: false, error: message }
   }
+  return { ok: false, error: 'Timed out' }
 }
 
 function friendlyFetchError(err: unknown, context: string): string {

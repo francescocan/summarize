@@ -23,6 +23,18 @@ function byId<T extends HTMLElement>(id: string): T {
   return el as T
 }
 
+const DAEMON_STATUS_TIMEOUT_MS = 5000
+const DAEMON_STATUS_RETRY_DELAY_MS = 400
+const DAEMON_STATUS_MAX_ATTEMPTS = 2
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
+const shouldRetryDaemon = (err: unknown) => {
+  if (err instanceof DOMException && err.name === 'AbortError') return true
+  const message = err instanceof Error ? err.message : ''
+  return message.toLowerCase() === 'failed to fetch'
+}
+
 const formEl = byId<HTMLFormElement>('form')
 const statusEl = byId<HTMLSpanElement>('status')
 
@@ -343,6 +355,26 @@ const setDaemonStatus = (text: string, state?: 'ok' | 'warn' | 'error') => {
 }
 
 let daemonCheckId = 0
+const fetchWithRetry = async (url: string, options: RequestInit = {}) => {
+  for (let attempt = 0; attempt < DAEMON_STATUS_MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), DAEMON_STATUS_TIMEOUT_MS)
+    try {
+      return await fetch(url, { ...options, signal: controller.signal })
+    } catch (error) {
+      if (attempt < DAEMON_STATUS_MAX_ATTEMPTS - 1 && shouldRetryDaemon(error)) {
+        window.clearTimeout(timeout)
+        await sleep(DAEMON_STATUS_RETRY_DELAY_MS * (attempt + 1))
+        continue
+      }
+      throw error
+    } finally {
+      window.clearTimeout(timeout)
+    }
+  }
+  throw new Error('health failed')
+}
+
 async function checkDaemonStatus(token: string) {
   const trimmedToken = token.trim()
   if (!trimmedToken) {
@@ -354,11 +386,8 @@ async function checkDaemonStatus(token: string) {
   const checkId = daemonCheckId
   setDaemonStatus('Checking daemon…')
 
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 2500)
   try {
-    const res = await fetch('http://127.0.0.1:8787/health', { signal: controller.signal })
-    window.clearTimeout(timeout)
+    const res = await fetchWithRetry('http://127.0.0.1:8787/health')
     if (checkId !== daemonCheckId) return
     if (!res.ok) {
       setDaemonStatus(
@@ -374,8 +403,7 @@ async function checkDaemonStatus(token: string) {
 
     if (trimmedToken) {
       try {
-        const ping = await fetch('http://127.0.0.1:8787/v1/ping', {
-          signal: controller.signal,
+        const ping = await fetchWithRetry('http://127.0.0.1:8787/v1/ping', {
           headers: { Authorization: `Bearer ${trimmedToken}` },
         })
         if (checkId !== daemonCheckId) return
@@ -406,7 +434,6 @@ async function checkDaemonStatus(token: string) {
 
     setDaemonStatus(`Daemon ${versionNote} connected`, 'ok')
   } catch {
-    window.clearTimeout(timeout)
     if (checkId !== daemonCheckId) return
     setDaemonStatus(
       'Daemon unreachable — run `summarize daemon status` and check ~/.summarize/logs/daemon.err.log',
