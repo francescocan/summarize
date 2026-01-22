@@ -193,7 +193,7 @@ const optionsWindowMargin = 20
 const MIN_CHAT_CHARS = 100
 const CHAT_FULL_TRANSCRIPT_MAX_CHARS = Number.MAX_SAFE_INTEGER
 const MAX_SLIDE_OCR_CHARS = 8000
-const DAEMON_STATUS_TIMEOUT_MS = 1200
+const DAEMON_STATUS_TIMEOUT_MS = 2500
 
 const formatSlideTimestamp = (seconds: number): string => {
   const safe = Math.max(0, Math.floor(seconds))

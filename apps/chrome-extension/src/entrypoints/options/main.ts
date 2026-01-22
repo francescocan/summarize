@@ -353,7 +353,7 @@ async function checkDaemonStatus(token: string) {
   setDaemonStatus('Checking daemon…')
 
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 1500)
+  const timeout = window.setTimeout(() => controller.abort(), 2500)
   try {
     const res = await fetch('http://127.0.0.1:8787/health', { signal: controller.signal })
     window.clearTimeout(timeout)
