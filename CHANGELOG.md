@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0 - Unreleased
+## 0.10 - Unreleased
 
 ### Highlights
 
@@ -30,6 +30,7 @@
 - Prompts: ignore sponsor/ads segments in video and podcast summaries.
 - Prompts: enforce no-ads/no-skipped language and italicized standout excerpts (no quotation marks).
 - Media: route direct media URLs to the transcription pipeline and raise the local media limit to 2GB (#47, thanks @n0an).
+- Media: treat X broadcasts (`/i/broadcasts/...`) as transcript-first media and prefer URL mode.
 - Slides: render Slide X/Y labels and parse slide markers more robustly in streaming output.
 - Slides: ensure slide summary segments start with a title line when missing.
 - Slides: progress updates during yt-dlp downloads and OSC progress mirrors slide extraction.

@@ -1,5 +1,8 @@
 import { load } from 'cheerio'
-import { isTwitterStatusUrl } from '../../link-preview/content/twitter-utils.js'
+import {
+  isTwitterBroadcastUrl,
+  isTwitterStatusUrl,
+} from '../../link-preview/content/twitter-utils.js'
 import type { TranscriptSegment } from '../../link-preview/types.js'
 import { isDirectMediaUrl } from '../../url.js'
 import { normalizeTranscriptText } from '../normalize.js'
@@ -23,6 +26,7 @@ export const fetchTranscript = async (
 
   const embedded = context.html ? detectEmbeddedMedia(context.html, context.url) : null
   const twitterStatus = isTwitterStatusUrl(context.url)
+  const twitterMedia = twitterStatus || isTwitterBroadcastUrl(context.url)
   const hasEmbeddedMedia = Boolean(embedded?.mediaUrl || embedded?.kind)
   const mediaKindHint = options.mediaKindHint ?? embedded?.kind ?? null
   if (embedded?.track) {
@@ -82,7 +86,7 @@ export const fetchTranscript = async (
     }
   }
 
-  if (!isTwitterStatusUrl(context.url)) {
+  if (!twitterMedia) {
     return {
       text: null,
       source: null,

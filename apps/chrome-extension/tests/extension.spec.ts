@@ -379,20 +379,23 @@ async function waitForExtractReady(harness: ExtensionHarness, urlPrefix: string,
   const background = await getBackground(harness)
   await expect
     .poll(async () => {
-      return await background.evaluate(async ({ prefix, limit }) => {
-        const tabs = await chrome.tabs.query({})
-        const target = tabs.find((tab) => tab.url?.startsWith(prefix))
-        if (!target?.id) return false
-        try {
-          const res = (await chrome.tabs.sendMessage(target.id, {
-            type: 'extract',
-            maxChars: limit,
-          })) as { ok?: boolean }
-          return Boolean(res?.ok)
-        } catch {
-          return false
-        }
-      }, { prefix: urlPrefix, limit: maxChars })
+      return await background.evaluate(
+        async ({ prefix, limit }) => {
+          const tabs = await chrome.tabs.query({})
+          const target = tabs.find((tab) => tab.url?.startsWith(prefix))
+          if (!target?.id) return false
+          try {
+            const res = (await chrome.tabs.sendMessage(target.id, {
+              type: 'extract',
+              maxChars: limit,
+            })) as { ok?: boolean }
+            return Boolean(res?.ok)
+          } catch {
+            return false
+          }
+        },
+        { prefix: urlPrefix, limit: maxChars }
+      )
     })
     .toBe(true)
 }
@@ -2255,10 +2258,9 @@ test('sidepanel scrolls YouTube slides and shows text for each slide', async ({
       const img = item.locator('img.slideInline__thumbImage')
       await expect(img).toBeVisible()
       await expect
-        .poll(
-          async () => (await img.evaluate((node) => node.dataset.slideImageUrl ?? '')).trim(),
-          { timeout: 10_000 }
-        )
+        .poll(async () => (await img.evaluate((node) => node.dataset.slideImageUrl ?? '')).trim(), {
+          timeout: 10_000,
+        })
         .not.toBe('')
 
       const text = item.locator('.slideGallery__text')

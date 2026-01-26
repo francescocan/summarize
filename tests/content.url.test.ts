@@ -4,6 +4,7 @@ import {
   extractYouTubeVideoId,
   isDirectMediaUrl,
   isPodcastHost,
+  isTwitterBroadcastUrl,
   isTwitterStatusUrl,
   isYouTubeUrl,
   isYouTubeVideoUrl,
@@ -37,6 +38,12 @@ describe('content/url', () => {
     expect(isTwitterStatusUrl('https://x.com/home')).toBe(false)
   })
 
+  it('detects Twitter/X broadcast URLs', () => {
+    expect(isTwitterBroadcastUrl('https://x.com/i/broadcasts/1PlJQOpPLXXKE')).toBe(true)
+    expect(isTwitterBroadcastUrl('https://twitter.com/i/broadcasts/abc123')).toBe(true)
+    expect(isTwitterBroadcastUrl('https://x.com/i/spaces/1')).toBe(false)
+  })
+
   it('detects direct media URLs', () => {
     expect(isDirectMediaUrl('https://example.com/video.mp4')).toBe(true)
     expect(isDirectMediaUrl('https://example.com/audio.mp3?x=1')).toBe(true)
@@ -52,6 +59,7 @@ describe('content/url', () => {
   it('prefers url mode for media-like urls', () => {
     expect(shouldPreferUrlMode('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(true)
     expect(shouldPreferUrlMode('https://x.com/user/status/123')).toBe(true)
+    expect(shouldPreferUrlMode('https://x.com/i/broadcasts/1PlJQOpPLXXKE')).toBe(true)
     expect(shouldPreferUrlMode('https://example.com/video.mp4')).toBe(true)
     expect(shouldPreferUrlMode('https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5')).toBe(
       true

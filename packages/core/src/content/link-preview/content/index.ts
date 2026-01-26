@@ -12,6 +12,7 @@ import { extractReadabilityFromHtml } from './readability.js'
 import {
   isAnubisHtml,
   isBlockedTwitterContent,
+  isTwitterBroadcastUrl,
   isTwitterStatusUrl,
   toNitterUrls,
 } from './twitter-utils.js'
@@ -178,6 +179,60 @@ export async function fetchLinkContent(
           used: false,
           provider: null,
           notes: 'Apple Podcasts short-circuit uses transcript content',
+        },
+        transcript: transcriptDiagnostics,
+      },
+    })
+  }
+
+  if (isTwitterBroadcastUrl(url)) {
+    const broadcastTranscriptMode = mediaTranscriptMode === 'auto' ? 'prefer' : mediaTranscriptMode
+    const transcriptResolution = await resolveTranscriptForLink(url, null, deps, {
+      youtubeTranscriptMode,
+      mediaTranscriptMode: broadcastTranscriptMode,
+      transcriptTimestamps,
+      cacheMode,
+      fileMtime,
+    })
+    if (!transcriptResolution.text) {
+      const notes = transcriptResolution.diagnostics?.notes
+      const suffix = notes ? ` (${notes})` : ''
+      throw new Error(`Failed to transcribe X broadcast${suffix}`)
+    }
+
+    const transcriptDiagnostics = ensureTranscriptDiagnostics(
+      transcriptResolution,
+      cacheMode ?? 'default'
+    )
+    transcriptDiagnostics.notes = appendNote(
+      transcriptDiagnostics.notes,
+      'X broadcast: skipped HTML/Firecrawl'
+    )
+
+    return finalizeExtractedLinkContent({
+      url,
+      baseContent: selectBaseContent('', transcriptResolution.text, transcriptResolution.segments),
+      maxCharacters,
+      title: null,
+      description: null,
+      siteName: 'X',
+      transcriptResolution,
+      video: { kind: 'direct', url },
+      isVideoOnly: true,
+      diagnostics: {
+        strategy: 'html',
+        firecrawl: {
+          attempted: false,
+          used: false,
+          cacheMode,
+          cacheStatus: cacheMode === 'bypass' ? 'bypassed' : 'unknown',
+          notes: 'X broadcast short-circuit skipped HTML/Firecrawl',
+        },
+        markdown: {
+          requested: markdownRequested,
+          used: false,
+          provider: null,
+          notes: 'X broadcast uses transcript content',
         },
         transcript: transcriptDiagnostics,
       },

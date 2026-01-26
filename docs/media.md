@@ -23,6 +23,7 @@ read_when:
 - Local audio/video files are routed through the same transcript-first pipeline.
 - YouTube still uses the YouTube transcript pipeline (captions → yt-dlp fallback).
  - X/Twitter status URLs with detected video auto-switch to transcript-first (yt-dlp), even in auto mode.
+ - X broadcasts (`/i/broadcasts/...`) are treated as media-only and go transcript-first by default.
  - Local media files are capped at 2 GB; remote media URLs are best-effort via yt-dlp (no explicit size limit).
 
 ## Chrome extension behavior

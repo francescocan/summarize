@@ -1,5 +1,5 @@
 import { isPodcastHost } from './link-preview/content/podcast-utils.js'
-import { isTwitterStatusUrl } from './link-preview/content/twitter-utils.js'
+import { isTwitterBroadcastUrl, isTwitterStatusUrl } from './link-preview/content/twitter-utils.js'
 
 export const isYouTubeUrl = (rawUrl: string): boolean => {
   try {
@@ -78,8 +78,12 @@ export function isDirectMediaUrl(url: string): boolean {
 
 export function shouldPreferUrlMode(url: string): boolean {
   return (
-    isYouTubeVideoUrl(url) || isTwitterStatusUrl(url) || isDirectMediaUrl(url) || isPodcastHost(url)
+    isYouTubeVideoUrl(url) ||
+    isTwitterStatusUrl(url) ||
+    isTwitterBroadcastUrl(url) ||
+    isDirectMediaUrl(url) ||
+    isPodcastHost(url)
   )
 }
 
-export { isTwitterStatusUrl, isPodcastHost }
+export { isTwitterBroadcastUrl, isTwitterStatusUrl, isPodcastHost }
