@@ -361,10 +361,9 @@ function resolveModelWithFallback({
   baseUrl: string | null
 }): Model<Api> {
   try {
-    return overrideModelBaseUrl(
-      getModel(provider as never, modelId as never) as Model<Api>,
-      baseUrl
-    )
+    const resolved = getModel(provider as never, modelId as never) as Model<Api> | undefined
+    if (!resolved) throw new Error(`Unknown model ${provider}/${modelId}`)
+    return overrideModelBaseUrl(resolved, baseUrl)
   } catch (error) {
     if (baseUrl) {
       return createSyntheticModel({
