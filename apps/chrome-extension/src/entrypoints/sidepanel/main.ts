@@ -20,6 +20,7 @@ import { readPresetOrCustomValue } from '../../lib/combo'
 import { buildIdleSubtitle } from '../../lib/header'
 import { buildMetricsParts, buildMetricsTokens } from '../../lib/metrics'
 import { defaultSettings, loadSettings, patchSettings, type SlidesLayout } from '../../lib/settings'
+import { logExtensionEvent } from '../../lib/extension-logs'
 import { parseSseStream } from '../../lib/sse'
 import { applyTheme } from '../../lib/theme'
 import { generateToken } from '../../lib/token'
@@ -60,6 +61,7 @@ type PanelToBg =
   | { type: 'panel:cache'; cache: PanelCachePayload }
   | { type: 'panel:get-cache'; requestId: string; tabId: number; url: string }
   | { type: 'panel:openOptions' }
+  | { type: 'panel:agent-abort' }
 
 type BgToPanel =
   | { type: 'ui:state'; state: UiState }
@@ -259,7 +261,7 @@ type ChatQueueItem = {
   createdAt: number
 }
 let chatQueue: ChatQueueItem[] = []
-const chatHistoryCache = new Map<number, ChatMessage[]>()
+const chatHistoryCache = new Map<string, ChatMessage[]>()
 let chatHistoryLoadId = 0
 let activeTabId: number | null = null
 let activeTabUrl: string | null = null
@@ -465,6 +467,14 @@ const pendingAgentRequests = new Map<
   }
 >()
 
+// Track agent requests that continue running in the background after tab switch
+type BackgroundAgentRequest = {
+  url: string
+  userMessages: ChatMessage[]
+  accumulatedContent: string
+}
+const backgroundAgentRequests = new Map<string, BackgroundAgentRequest>()
+
 type ChatHistoryResponse = { ok: boolean; messages?: Message[]; error?: string }
 const pendingChatHistoryRequests = new Map<
   string,
@@ -518,15 +528,52 @@ function buildStreamingAssistantMessage(): ChatMessage {
 
 function handleAgentResponse(msg: Extract<BgToPanel, { type: 'agent:response' }>) {
   const pending = pendingAgentRequests.get(msg.requestId)
-  if (!pending) return
-  pendingAgentRequests.delete(msg.requestId)
-  pending.resolve({ ok: msg.ok, assistant: msg.assistant, error: msg.error })
+  if (pending) {
+    pendingAgentRequests.delete(msg.requestId)
+    backgroundAgentRequests.delete(msg.requestId)
+    pending.resolve({ ok: msg.ok, assistant: msg.assistant, error: msg.error })
+    return
+  }
+  // Response for a background request (user switched tab before answer arrived)
+  const bgReq = backgroundAgentRequests.get(msg.requestId)
+  if (bgReq && msg.ok && msg.assistant) {
+    backgroundAgentRequests.delete(msg.requestId)
+    // Build assistant message from the response
+    const assistantMsg: ChatMessage = {
+      ...msg.assistant,
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+    }
+    // Save user messages + assistant answer to that URL's chat history
+    const allMessages = [...bgReq.userMessages, assistantMsg]
+    const compacted = compactChatHistory(allMessages, chatLimits)
+    chatHistoryCache.set(bgReq.url, compacted)
+    const store = chrome.storage?.session
+    if (store) {
+      void store.set({ [getChatHistoryKey(bgReq.url)]: compacted }).catch(() => {})
+    }
+    logExtensionEvent({
+      event: 'chat:background-response-saved',
+      level: 'info',
+      detail: { url: bgReq.url, requestId: msg.requestId },
+      scope: 'panel:chat',
+    })
+  } else {
+    backgroundAgentRequests.delete(msg.requestId)
+  }
 }
 
 function handleAgentChunk(msg: Extract<BgToPanel, { type: 'agent:chunk' }>) {
   const pending = pendingAgentRequests.get(msg.requestId)
-  if (!pending?.onChunk) return
-  pending.onChunk(msg.text)
+  if (pending?.onChunk) {
+    pending.onChunk(msg.text)
+    return
+  }
+  // Accumulate chunks for background requests (user on a different tab)
+  const bgReq = backgroundAgentRequests.get(msg.requestId)
+  if (bgReq) {
+    bgReq.accumulatedContent += msg.text
+  }
 }
 
 function handleChatHistoryResponse(msg: Extract<BgToPanel, { type: 'chat:history' }>) {
@@ -543,9 +590,16 @@ async function requestAgent(
   opts?: { onChunk?: (text: string) => void }
 ) {
   const requestId = crypto.randomUUID()
+  // Track this request so background can deliver the answer even after tab switch
+  backgroundAgentRequests.set(requestId, {
+    url: activeTabUrl ?? '',
+    userMessages: chatController.getMessages().slice(),
+    accumulatedContent: '',
+  })
   const response = new Promise<AgentResponse>((resolve, reject) => {
     const timeout = window.setTimeout(() => {
       pendingAgentRequests.delete(requestId)
+      backgroundAgentRequests.delete(requestId)
       reject(new Error('Agent request timed out'))
     }, 360_000)
     pendingAgentRequests.set(requestId, {
@@ -972,14 +1026,16 @@ function shouldPreserveChatForRun(url: string) {
 }
 
 async function migrateChatHistory(fromTabId: number | null, toTabId: number | null) {
-  if (!fromTabId || !toTabId || fromTabId === toTabId) return
+  // With URL-based chat history, we just persist current messages under the current URL
+  const url = activeTabUrl
+  if (!url) return
   const messages = chatController.getMessages()
   if (messages.length === 0) return
-  chatHistoryCache.set(toTabId, messages)
+  chatHistoryCache.set(url, messages)
   const store = chrome.storage?.session
   if (!store) return
   try {
-    await store.set({ [getChatHistoryKey(toTabId)]: messages })
+    await store.set({ [getChatHistoryKey(url)]: messages })
   } catch {
     // ignore
   }
@@ -2483,8 +2539,16 @@ function applyChatEnabled() {
   }
 }
 
-function getChatHistoryKey(tabId: number) {
-  return `chat:tab:${tabId}`
+function getChatHistoryKey(tabIdOrUrl: number | string) {
+  // If given a URL string, key by URL for cross-tab persistence
+  if (typeof tabIdOrUrl === 'string') return `chat:url:${tabIdOrUrl}`
+  // Legacy fallback for tabId (shouldn't happen in normal flow)
+  return `chat:tab:${tabIdOrUrl}`
+}
+
+function getChatHistoryKeyForUrl(url: string | null): string | null {
+  if (!url) return null
+  return `chat:url:${url}`
 }
 
 function buildEmptyUsage() {
@@ -2551,14 +2615,22 @@ function normalizeStoredMessage(raw: Record<string, unknown>): ChatMessage | nul
 }
 
 async function clearChatHistoryForTab(tabId: number | null) {
-  if (!tabId) return
-  chatHistoryCache.delete(tabId)
-  const store = chrome.storage?.session
-  if (!store) return
-  try {
-    await store.remove(getChatHistoryKey(tabId))
-  } catch {
-    // ignore
+  // Clear by URL (primary) and legacy tabId key
+  const url = activeTabUrl
+  if (url) {
+    const urlKey = getChatHistoryKey(url)
+    chatHistoryCache.delete(url)
+    const store = chrome.storage?.session
+    if (store) {
+      try { await store.remove(urlKey) } catch { /* ignore */ }
+    }
+  }
+  if (tabId) {
+    const tabKey = getChatHistoryKey(tabId)
+    const store = chrome.storage?.session
+    if (store) {
+      try { await store.remove(tabKey) } catch { /* ignore */ }
+    }
   }
 }
 
@@ -2567,8 +2639,31 @@ async function clearChatHistoryForActiveTab() {
 }
 
 async function loadChatHistory(tabId: number): Promise<ChatMessage[] | null> {
-  const cached = chatHistoryCache.get(tabId)
-  if (cached) return cached
+  // Try loading by URL first, then fall back to legacy tabId key
+  const url = activeTabUrl
+  if (url) {
+    const urlKey = getChatHistoryKey(url)
+    const cachedByUrl = chatHistoryCache.get(url)
+    if (cachedByUrl) return cachedByUrl
+    const store = chrome.storage?.session
+    if (store) {
+      try {
+        const res = await store.get(urlKey)
+        const raw = res?.[urlKey]
+        if (Array.isArray(raw)) {
+          const parsed = raw
+            .filter((msg) => msg && typeof msg === 'object')
+            .map((msg) => normalizeStoredMessage(msg as Record<string, unknown>))
+            .filter((msg): msg is ChatMessage => Boolean(msg))
+          if (parsed.length) {
+            chatHistoryCache.set(url, parsed)
+            return parsed
+          }
+        }
+      } catch { /* ignore */ }
+    }
+  }
+  // Legacy fallback: try tabId-based key
   const store = chrome.storage?.session
   if (!store) return null
   try {
@@ -2581,7 +2676,7 @@ async function loadChatHistory(tabId: number): Promise<ChatMessage[] | null> {
       .map((msg) => normalizeStoredMessage(msg as Record<string, unknown>))
       .filter((msg): msg is ChatMessage => Boolean(msg))
     if (!parsed.length) return null
-    chatHistoryCache.set(tabId, parsed)
+    if (url) chatHistoryCache.set(url, parsed)
     return parsed
   } catch {
     return null
@@ -2590,17 +2685,17 @@ async function loadChatHistory(tabId: number): Promise<ChatMessage[] | null> {
 
 async function persistChatHistory() {
   if (!chatEnabledValue) return
-  const tabId = activeTabId
-  if (!tabId) return
+  const url = activeTabUrl
+  if (!url) return
   const compacted = compactChatHistory(chatController.getMessages(), chatLimits)
   if (compacted.length !== chatController.getMessages().length) {
     chatController.setMessages(compacted, { scroll: false })
   }
-  chatHistoryCache.set(tabId, compacted)
+  chatHistoryCache.set(url, compacted)
   const store = chrome.storage?.session
   if (!store) return
   try {
-    await store.set({ [getChatHistoryKey(tabId)]: compacted })
+    await store.set({ [getChatHistoryKey(url)]: compacted })
   } catch {
     // ignore
   }
@@ -3469,22 +3564,37 @@ function updateControls(state: UiState) {
   const nextVideoLabel = state.media?.hasAudio && !state.media.hasVideo ? 'Audio' : 'Video'
 
   if (tabChanged) {
-    const initialTabHydration = activeTabId === null && nextTabId !== null && hasActiveChat
-    const preserveChat = initialTabHydration || isRecentAgentNavigation(nextTabId, nextTabUrl)
-    if (preserveChat) {
-      notePreserveChatForUrl(nextTabUrl ?? lastAgentNavigation?.url ?? null)
-    }
+    // Always preserve chat when switching tabs — keyed by URL now
+    const preserveChat = true
+    // Save current chat under the OLD url before switching
+    const previousUrl = activeTabUrl
     const previousTabId = activeTabId
+    if (previousUrl && chatController.getMessages().length > 0) {
+      const msgs = compactChatHistory(chatController.getMessages(), chatLimits)
+      chatHistoryCache.set(previousUrl, msgs)
+      const store = chrome.storage?.session
+      if (store) {
+        void store.set({ [getChatHistoryKey(previousUrl)]: msgs }).catch(() => {})
+      }
+    }
     activeTabId = nextTabId
     activeTabUrl = nextTabUrl
-    if (panelState.chatStreaming && !preserveChat) {
-      requestAgentAbort('Tab changed')
+    // Detach UI handlers from pending requests (let background keep running)
+    // backgroundAgentRequests still tracks them so responses get saved to chat history
+    for (const reqId of pendingAgentRequests.keys()) {
+      pendingAgentRequests.delete(reqId)
     }
-    if (!preserveChat) {
-      void clearChatHistoryForActiveTab()
-      resetChatState()
-    } else {
-      void migrateChatHistory(previousTabId, nextTabId)
+    logExtensionEvent({
+      event: 'chat:tab-switch',
+      level: 'info',
+      detail: { from: previousUrl ?? '(none)', to: nextTabUrl ?? '(none)' },
+      scope: 'panel:chat',
+    })
+    // Clear in-memory chat before loading new tab's history
+    resetChatState()
+    // Abort any in-progress summarization on tab switch
+    if (isStreaming()) {
+      streamController.abort()
     }
     inputMode = preferUrlMode ? 'video' : 'page'
     inputModeOverride = null
@@ -3503,19 +3613,30 @@ function updateControls(state: UiState) {
       currentRunTabId = null
       resetSummaryView({ preserveChat })
     }
+    // Restore chat history for the new URL
+    void restoreChatHistory()
   } else if (urlChanged) {
+    // URL changed within same tab — persist current chat under OLD URL, then load for new URL
     const previousTabUrl = activeTabUrl
+    if (previousTabUrl && chatController.getMessages().length > 0) {
+      const msgs = compactChatHistory(chatController.getMessages(), chatLimits)
+      chatHistoryCache.set(previousTabUrl, msgs)
+      const store = chrome.storage?.session
+      if (store) {
+        void store.set({ [getChatHistoryKey(previousTabUrl)]: msgs }).catch(() => {})
+      }
+    }
     activeTabUrl = nextTabUrl
-    const initialUrlHydration = previousTabUrl === null && nextTabUrl !== null && hasActiveChat
-    const preserveChat = initialUrlHydration || isRecentAgentNavigation(activeTabId, nextTabUrl)
-    if (preserveChat) {
-      notePreserveChatForUrl(nextTabUrl)
-    } else if (
-      chatEnabledValue &&
-      (panelState.chatStreaming || chatController.getMessages().length > 0)
-    ) {
-      void clearChatHistoryForActiveTab()
-      resetChatState()
+    // Detach UI handlers from pending requests (let background keep running)
+    for (const reqId of pendingAgentRequests.keys()) {
+      pendingAgentRequests.delete(reqId)
+    }
+    // Clear in-memory chat before loading new URL's history
+    resetChatState()
+    const preserveChat = true
+    // Abort any in-progress summarization when URL changes
+    if (isStreaming()) {
+      streamController.abort()
     }
     if (activeTabId && nextTabUrl) {
       const cached = panelCacheController.resolve(activeTabId, nextTabUrl)
@@ -3536,13 +3657,8 @@ function updateControls(state: UiState) {
       inputMode = preferUrlMode ? 'video' : 'page'
       inputModeOverride = null
     }
-    if (
-      chatEnabledValue &&
-      nextTabUrl &&
-      (panelState.chatStreaming || chatController.getMessages().length > 0)
-    ) {
-      void appendNavigationMessage(nextTabUrl, state.tab.title ?? null)
-    }
+    // Restore chat history for the new URL
+    void restoreChatHistory()
   }
 
   autoValue = state.settings.autoSummarize
@@ -4069,6 +4185,12 @@ function startChatMessage(text: string) {
       await runAgentLoop()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      logExtensionEvent({
+        event: 'chat:error',
+        level: 'error',
+        detail: { error: message },
+        scope: 'panel:chat',
+      })
       headerController.setStatus(`Error: ${message}`)
       errorController.showInlineError(message)
     } finally {
@@ -4104,6 +4226,12 @@ function retryChat() {
       await runAgentLoop()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      logExtensionEvent({
+        event: 'chat:retry-error',
+        level: 'error',
+        detail: { error: message },
+        scope: 'panel:chat',
+      })
       headerController.setStatus(`Error: ${message}`)
       errorController.showInlineError(message)
     } finally {

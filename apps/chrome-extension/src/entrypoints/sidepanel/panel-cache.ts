@@ -66,14 +66,10 @@ export function createPanelCacheController(
     preserveChat: boolean
   } | null = null
 
-  const buildKey = (tabId: number, url: string) => `${tabId}:${url}`
+  // Key by URL only so summaries persist across tab switches
+  const buildKey = (_tabId: number, url: string) => url
 
   const store = (payload: PanelCachePayload) => {
-    for (const key of cacheByKey.keys()) {
-      if (key.startsWith(`${payload.tabId}:`) && key !== buildKey(payload.tabId, payload.url)) {
-        cacheByKey.delete(key)
-      }
-    }
     cacheByKey.set(buildKey(payload.tabId, payload.url), payload)
   }
 

@@ -42,6 +42,7 @@ type PanelToBg =
   | { type: 'panel:cache'; cache: PanelCachePayload }
   | { type: 'panel:get-cache'; requestId: string; tabId: number; url: string }
   | { type: 'panel:openOptions' }
+  | { type: 'panel:agent-abort' }
 
 type RunStart = {
   id: string
@@ -183,6 +184,7 @@ type PanelSession = {
   inflightUrl: string | null
   runController: AbortController | null
   agentController: AbortController | null
+  agentControllers: Map<string, AbortController>
   lastNavAt: number
   daemonRecovery: ReturnType<typeof createDaemonRecovery>
 }
@@ -713,7 +715,8 @@ export default defineBackground(() => {
     } | null
   }
   const cachedExtracts = new Map<number, CachedExtract>()
-  const panelCacheByTabId = new Map<number, PanelCachePayload>()
+  // Cache by URL so summaries persist across tab switches
+  const panelCacheByUrl = new Map<string, PanelCachePayload>()
   const hoverControllersByTabId = new Map<
     number,
     { requestId: string; controller: AbortController }
@@ -748,7 +751,9 @@ export default defineBackground(() => {
     const existing = panelSessions.get(windowId)
     if (existing && existing.port !== port) {
       existing.runController?.abort()
-      existing.agentController?.abort()
+      for (const ctrl of existing.agentControllers.values()) ctrl.abort()
+      existing.agentControllers.clear()
+      existing.agentController = null
     }
     const session: PanelSession = existing ?? {
       windowId,
@@ -759,6 +764,7 @@ export default defineBackground(() => {
       inflightUrl: null,
       runController: null,
       agentController: null,
+      agentControllers: new Map(),
       lastNavAt: 0,
       daemonRecovery: createDaemonRecovery(),
     }
@@ -792,13 +798,12 @@ export default defineBackground(() => {
   }
 
   const storePanelCache = (payload: PanelCachePayload) => {
-    panelCacheByTabId.set(payload.tabId, payload)
+    if (payload.url) panelCacheByUrl.set(payload.url, payload)
   }
 
   const getPanelCache = (tabId: number, url?: string | null) => {
-    const cached = panelCacheByTabId.get(tabId) ?? null
-    if (!cached) return null
-    if (url && cached.url !== url) return null
+    if (!url) return null
+    const cached = panelCacheByUrl.get(url) ?? null
     return cached
   }
 
@@ -959,11 +964,19 @@ export default defineBackground(() => {
   }
 
   const send = (session: PanelSession, msg: BgToPanel) => {
-    if (!isPanelOpen(session)) return
+    // Always deliver agent messages — the sidepanel handles routing
+    if (msg.type !== 'agent:chunk' && msg.type !== 'agent:response') {
+      if (!isPanelOpen(session)) return
+    }
     try {
       session.port.postMessage(msg)
-    } catch {
-      // ignore (panel closed / reloading)
+    } catch (err) {
+      logExtensionEvent({
+        event: 'bg:send-failed',
+        level: 'error',
+        detail: { type: msg.type, requestId: (msg as { requestId?: string }).requestId, error: String(err) },
+        scope: 'panel:bg',
+      })
     }
   }
   const sendStatus = (session: PanelSession, status: string) =>
@@ -1677,8 +1690,7 @@ export default defineBackground(() => {
         session.inflightUrl = null
         session.runController?.abort()
         session.runController = null
-        session.agentController?.abort()
-        session.agentController = null
+        // Don't abort agent controllers — let running chat requests complete
         session.daemonRecovery.clearPending()
         void emitState(session, '')
         void summarizeActiveTab(session, 'panel-open')
@@ -1688,8 +1700,7 @@ export default defineBackground(() => {
         session.panelLastPingAt = 0
         session.runController?.abort()
         session.runController = null
-        session.agentController?.abort()
-        session.agentController = null
+        // Don't abort agent controllers — let running chat requests complete
         session.lastSummarizedUrl = null
         session.inflightUrl = null
         session.daemonRecovery.clearPending()
@@ -1725,6 +1736,11 @@ export default defineBackground(() => {
         })
         break
       }
+      case 'panel:agent-abort':
+        for (const ctrl of session.agentControllers.values()) ctrl.abort()
+        session.agentControllers.clear()
+        session.agentController = null
+        break
       case 'panel:agent':
         void (async () => {
           const settings = await loadSettings()
@@ -1753,18 +1769,19 @@ export default defineBackground(() => {
             return
           }
 
-          session.agentController?.abort()
-          const agentController = new AbortController()
-          session.agentController = agentController
-          const isStillActive = () =>
-            session.agentController === agentController && !agentController.signal.aborted
-
+          // Don't abort previous requests — allow concurrent agent requests across tabs
           const agentPayload = raw as {
             requestId: string
             messages: Message[]
             tools: string[]
             summary?: string | null
           }
+          const agentController = new AbortController()
+          session.agentControllers.set(agentPayload.requestId, agentController)
+          // Keep legacy single controller for panel:agent-abort compatibility
+          session.agentController = agentController
+          const isStillActive = () => !agentController.signal.aborted
+
           const summaryText =
             typeof agentPayload.summary === 'string' ? agentPayload.summary.trim() : ''
           const slidesContext = buildSlidesText(cachedExtract.slides, settings.slidesOcrEnabled)
@@ -1864,6 +1881,12 @@ export default defineBackground(() => {
           } catch (err) {
             if (agentController.signal.aborted) return
             const message = friendlyFetchError(err, 'Chat request failed')
+            logExtensionEvent({
+              event: 'agent:error',
+              level: 'error',
+              detail: { requestId: agentPayload.requestId, error: message },
+              scope: 'panel:bg',
+            })
             void send(session, {
               type: 'agent:response',
               requestId: agentPayload.requestId,
@@ -1872,6 +1895,7 @@ export default defineBackground(() => {
             })
             sendStatus(session, `Error: ${message}`)
           } finally {
+            session.agentControllers.delete(agentPayload.requestId)
             if (session.agentController === agentController) {
               session.agentController = null
             }
@@ -2183,7 +2207,8 @@ export default defineBackground(() => {
       session.lastSummarizedUrl = null
       session.inflightUrl = null
       session.daemonRecovery.clearPending()
-      panelSessions.delete(windowId)
+      // Don't delete session — let registerPanelSession reuse it on reconnect
+      // so in-flight agent closures keep a valid session reference
       getPanelPortMap().delete(windowId)
       void clearCachedExtractsForWindow(windowId)
     })
@@ -2366,7 +2391,7 @@ export default defineBackground(() => {
       if (now - session.lastNavAt < 700) return
       session.lastNavAt = now
       void emitState(session, '')
-      void summarizeActiveTab(session, 'spa-nav')
+      // Don't auto-summarize on SPA navigation — user must explicitly request it
     })()
   })
 
@@ -2374,7 +2399,7 @@ export default defineBackground(() => {
     const session = getPanelSession(info.windowId)
     if (!session) return
     void emitState(session, '')
-    void summarizeActiveTab(session, 'tab-activated')
+    // Don't auto-summarize on tab switch — user must explicitly request it
   })
 
   chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
@@ -2386,11 +2411,11 @@ export default defineBackground(() => {
       void emitState(session, '')
     }
     if (typeof changeInfo.url === 'string') {
-      void summarizeActiveTab(session, 'tab-url-change')
+      // Don't auto-summarize on URL change — user must explicitly request it
     }
     if (changeInfo.status === 'complete') {
       void emitState(session, '')
-      void summarizeActiveTab(session, 'tab-updated')
+      // Don't auto-summarize on tab load complete — user must explicitly request it
     }
   })
 
@@ -2398,7 +2423,7 @@ export default defineBackground(() => {
     cachedExtracts.delete(tabId)
     lastMediaProbeByTab.delete(tabId)
     hoverControllersByTabId.delete(tabId)
-    panelCacheByTabId.delete(tabId)
+    // Don't delete URL-based panel cache on tab close — summary persists per URL
   })
 
   // Chrome: Auto-open side panel on toolbar icon click
