@@ -27,6 +27,7 @@ export async function completeGoogleText({
   const result = await completeSimple(model, context, {
     ...(typeof temperature === 'number' ? { temperature } : {}),
     ...(typeof maxOutputTokens === 'number' ? { maxTokens: maxOutputTokens } : {}),
+    ...(model.reasoning ? { thinking: { enabled: true } } : {}),
     apiKey,
     signal,
   })

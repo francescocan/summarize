@@ -265,7 +265,11 @@ export async function generateTextWithModelId({
 
   while (attempt <= maxRetries) {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    const needsLongerTimeout =
+      (parsed.provider === 'google' && /\b(thinking|preview|3-flash|3-pro)\b/i.test(parsed.model)) ||
+      parsed.provider === 'openai'
+    const effectiveTimeoutMs = needsLongerTimeout ? Math.max(timeoutMs, 300_000) : timeoutMs
+    const timeout = setTimeout(() => controller.abort(), effectiveTimeoutMs)
     try {
       if (parsed.provider === 'xai') {
         const apiKey = apiKeys.xaiApiKey
@@ -382,7 +386,7 @@ export async function generateTextWithModelId({
     } catch (error) {
       const normalizedError =
         error instanceof DOMException && error.name === 'AbortError'
-          ? new Error(`LLM request timed out after ${timeoutMs}ms (model ${parsed.canonical}).`)
+          ? new Error(`LLM request timed out after ${effectiveTimeoutMs}ms (model ${parsed.canonical}).`)
           : error
       if (parsed.provider === 'anthropic') {
         const normalized = normalizeAnthropicModelAccessError(normalizedError, parsed.model)
@@ -496,6 +500,13 @@ export async function streamTextWithContext({
   const effectiveTemperature = resolveEffectiveTemperature({ parsed, temperature })
   void fetchImpl
 
+  const streamNeedsLongerTimeout =
+    (parsed.provider === 'google' && /\b(thinking|preview|3-flash|3-pro)\b/i.test(parsed.model)) ||
+    parsed.provider === 'openai'
+  const streamEffectiveTimeoutMs = streamNeedsLongerTimeout
+    ? Math.max(timeoutMs, 300_000)
+    : timeoutMs
+
   const controller = new AbortController()
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   const startedAtMs = Date.now()
@@ -509,7 +520,7 @@ export async function streamTextWithContext({
 
   const startTimeout = () => {
     if (timeoutId) return
-    timeoutId = setTimeout(markTimedOut, timeoutMs)
+    timeoutId = setTimeout(markTimedOut, streamEffectiveTimeoutMs)
   }
 
   const stopTimeout = () => {
@@ -520,7 +531,7 @@ export async function streamTextWithContext({
 
   const nextWithDeadline = async <T>(promise: Promise<T>): Promise<T> => {
     const elapsed = Date.now() - startedAtMs
-    const remaining = timeoutMs - elapsed
+    const remaining = streamEffectiveTimeoutMs - elapsed
     if (remaining <= 0) {
       markTimedOut()
       throw timeoutError
@@ -618,6 +629,7 @@ export async function streamTextWithContext({
       const stream = streamSimple(model, context, {
         ...(typeof effectiveTemperature === 'number' ? { temperature: effectiveTemperature } : {}),
         ...(typeof maxOutputTokens === 'number' ? { maxTokens: maxOutputTokens } : {}),
+        ...(model.reasoning ? { thinking: { enabled: true } } : {}),
         apiKey,
         signal: controller.signal,
       })
