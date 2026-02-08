@@ -1,6 +1,6 @@
 # Summarize Extension - Automated Setup Script
 # Run this in PowerShell on a new PC after installing Node 22+, Git, and Chrome
-# Usage: powershell -ExecutionPolicy Bypass -File setup-pc.ps1 -Token "<YOUR_TOKEN>"
+# Usage: powershell -ExecutionPolicy Bypass -File setup-pc.ps1 -Token "<YOUR_TOKEN>" -GeminiKey "<KEY>" -NvidiaKey "<KEY>"
 
 param(
     [Parameter(Mandatory=$true)]
@@ -40,18 +40,26 @@ Write-Host "`nInstalling daemon with token..." -ForegroundColor Yellow
 & "$nodeExe" --experimental-sqlite "$npmModules\dist\cli.js" daemon install --token $Token
 Write-Host "[OK] Daemon installed" -ForegroundColor Green
 
-# Step 4: Patch daemon.cmd with env vars and --experimental-sqlite
+# Step 4: Create .env file with API keys (outside the repo - never committed)
+$envContent = @"
+GEMINI_API_KEY=$GeminiKey
+OPENAI_API_KEY=$NvidiaKey
+OPENAI_BASE_URL=$NvidiaBaseUrl
+"@
+Set-Content -Path "$summarizeDir\.env" -Value $envContent -Encoding ASCII
+Write-Host "[OK] .env file created at $summarizeDir\.env (keys stored safely outside repo)" -ForegroundColor Green
+
+# Step 5: Patch daemon.cmd to load from .env and use --experimental-sqlite
 $daemonCmd = @"
 @echo off
-set GEMINI_API_KEY=$GeminiKey
-set OPENAI_API_KEY=$NvidiaKey
-set OPENAI_BASE_URL=$NvidiaBaseUrl
+rem Load API keys from .env file (keeps keys out of any repo)
+for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0.env") do set "%%A=%%B"
 "$nodeExe" --experimental-sqlite "$npmModules\dist\cli.js" daemon run
 "@
 Set-Content -Path "$summarizeDir\daemon.cmd" -Value $daemonCmd -Encoding ASCII
-Write-Host "[OK] daemon.cmd patched" -ForegroundColor Green
+Write-Host "[OK] daemon.cmd patched (loads keys from .env)" -ForegroundColor Green
 
-# Step 5: Update daemon.json with env vars
+# Step 6: Update daemon.json with env vars
 $daemonJson = Get-Content "$summarizeDir\daemon.json" -Raw | ConvertFrom-Json
 $daemonJson.env = @{
     GEMINI_API_KEY = $GeminiKey
@@ -61,7 +69,7 @@ $daemonJson.env = @{
 $daemonJson | ConvertTo-Json -Depth 10 | Set-Content "$summarizeDir\daemon.json" -Encoding UTF8
 Write-Host "[OK] daemon.json patched" -ForegroundColor Green
 
-# Step 6: Create hidden-window VBS launcher
+# Step 7: Create hidden-window VBS launcher
 $vbs = @"
 Set WshShell = CreateObject("WScript.Shell")
 WshShell.Run Chr(34) & "$summarizeDir\daemon.cmd" & Chr(34), 0, False
@@ -69,7 +77,7 @@ WshShell.Run Chr(34) & "$summarizeDir\daemon.cmd" & Chr(34), 0, False
 Set-Content -Path "$summarizeDir\daemon.vbs" -Value $vbs -Encoding ASCII
 Write-Host "[OK] daemon.vbs created" -ForegroundColor Green
 
-# Step 7: Set default model config
+# Step 8: Set default model config
 $config = @{
     model = $DefaultModel
     timeout = "5m"
@@ -77,7 +85,7 @@ $config = @{
 Set-Content -Path "$summarizeDir\config.json" -Value $config -Encoding UTF8
 Write-Host "[OK] config.json set to $DefaultModel" -ForegroundColor Green
 
-# Step 8: Apply source code patches from fork
+# Step 9: Apply source code patches from fork
 Write-Host "`nCloning fork to apply patches..." -ForegroundColor Yellow
 $forkDir = "$env:USERPROFILE\Documents\summarize"
 if (Test-Path $forkDir) {
@@ -98,18 +106,19 @@ Copy-Item "dist\esm\llm\generate-text.js.map" "$npmModules\dist\esm\llm\generate
 Pop-Location
 Write-Host "[OK] Patched files copied" -ForegroundColor Green
 
-# Step 9: Start daemon hidden
+# Step 10: Start daemon hidden
 Write-Host "`nStarting daemon..." -ForegroundColor Yellow
 Stop-Process -Name "node" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 wscript "$summarizeDir\daemon.vbs"
 Start-Sleep -Seconds 3
 
-# Step 10: Verify
+# Step 11: Verify
 Write-Host "`nVerifying daemon status..." -ForegroundColor Yellow
 & "$nodeExe" --experimental-sqlite "$npmModules\dist\cli.js" daemon status
 
 Write-Host "`n=== Setup Complete ===" -ForegroundColor Cyan
+Write-Host "API keys stored in: $summarizeDir\.env (safe, outside repo)" -ForegroundColor White
 Write-Host "Available models:" -ForegroundColor White
 Write-Host "  - google/gemini-3-flash-preview  (thinking model, default)" -ForegroundColor White
 Write-Host "  - google/gemini-2.5-flash         (fast)" -ForegroundColor White
