@@ -547,7 +547,7 @@ async function requestAgent(
     const timeout = window.setTimeout(() => {
       pendingAgentRequests.delete(requestId)
       reject(new Error('Agent request timed out'))
-    }, 60_000)
+    }, 360_000)
     pendingAgentRequests.set(requestId, {
       resolve: (result) => {
         window.clearTimeout(timeout)
