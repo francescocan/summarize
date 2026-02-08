@@ -1495,7 +1495,7 @@ export async function runDaemonServer({
         }
 
         const keepalive = setInterval(() => {
-          res.write(`: keepalive ${Date.now()}\n\n`)
+          res.write(`event: keepalive\ndata: ${Date.now()}\n\n`)
         }, 15_000)
         keepalive.unref()
 
@@ -1553,7 +1553,7 @@ export async function runDaemonServer({
         }
 
         const keepalive = setInterval(() => {
-          res.write(`: keepalive ${Date.now()}\n\n`)
+          res.write(`event: keepalive\ndata: ${Date.now()}\n\n`)
         }, 15_000)
         keepalive.unref()
 
@@ -1595,7 +1595,7 @@ export async function runDaemonServer({
         }
 
         const keepalive = setInterval(() => {
-          res.write(`: keepalive ${Date.now()}\n\n`)
+          res.write(`event: keepalive\ndata: ${Date.now()}\n\n`)
         }, 15_000)
         keepalive.unref()
 

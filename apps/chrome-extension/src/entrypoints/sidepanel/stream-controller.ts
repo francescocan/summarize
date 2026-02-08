@@ -175,6 +175,7 @@ export function createStreamController(options: StreamControllerOptions): Stream
         if (done) break
         if (nextController.signal.aborted) return
 
+        if (msg.event === 'keepalive') continue
         const event = parseSseEvent(msg)
         if (!event) continue
 
