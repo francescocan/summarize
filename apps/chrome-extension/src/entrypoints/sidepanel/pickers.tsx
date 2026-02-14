@@ -5,7 +5,7 @@ import { createPortal } from 'preact/compat'
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import { readPresetOrCustomValue, resolvePresetOrCustom } from '../../lib/combo'
-import { defaultSettings } from '../../lib/settings'
+import { type AnalysisModeSetting, defaultSettings } from '../../lib/settings'
 import type { ColorMode, ColorScheme } from '../../lib/theme'
 import { getOverlayRoot } from '../../ui/portal'
 import { SchemeChips } from '../../ui/scheme-chips'
@@ -43,6 +43,8 @@ type SummarizeControlProps = {
   onSlidesTextModeChange?: (value: 'transcript' | 'ocr') => void
   onChange: (value: { mode: 'page' | 'video'; slides: boolean }) => void
   onSummarize: () => void
+  analysisMode?: AnalysisModeSetting
+  onAnalysisModeChange?: (value: AnalysisModeSetting) => void
 }
 
 const lengthPresets = ['short', 'medium', 'long', 'xl', 'xxl', '20k']
@@ -604,13 +606,35 @@ function SummarizeControl(props: SummarizeControlProps) {
       props.onSlidesTextModeChange
   )
 
+  const analysisMode = props.analysisMode ?? 'summarize'
+  const isDeepAnalysis = analysisMode === 'deep-analysis'
+  const buttonLabel = isDeepAnalysis ? 'Analyze' : 'Summarize'
+
   return (
     <div className="summarizeControlGroup">
+      {props.onAnalysisModeChange ? (
+        <fieldset className="analysisModeToggle">
+          <button
+            type="button"
+            data-active={!isDeepAnalysis ? 'true' : 'false'}
+            onClick={() => props.onAnalysisModeChange?.('summarize')}
+          >
+            Summary
+          </button>
+          <button
+            type="button"
+            data-active={isDeepAnalysis ? 'true' : 'false'}
+            onClick={() => props.onAnalysisModeChange?.('deep-analysis')}
+          >
+            Deep Analysis
+          </button>
+        </fieldset>
+      ) : null}
       <div className="picker summarizePicker" {...api.getRootProps()}>
         <button
           type="button"
           className="ghost summarizeButton isDropdown"
-          aria-label={`Summarize (${selectedLabel})`}
+          aria-label={`${buttonLabel} (${selectedLabel})`}
           data-busy={props.busy ? 'true' : 'false'}
           disabled={!props.mediaAvailable && props.mode === 'video'}
           {...rest}
@@ -618,7 +642,7 @@ function SummarizeControl(props: SummarizeControlProps) {
           onPointerDown={onPointerDown}
           onKeyDown={onKeyDown}
         >
-          Summarize
+          {buttonLabel}
         </button>
         {portalRoot ? createPortal(content, portalRoot) : content}
         <select className="pickerHidden" {...api.getHiddenSelectProps()} />

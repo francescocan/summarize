@@ -1,6 +1,7 @@
 import type { Api, AssistantMessage, Message, Model, Tool } from '@mariozechner/pi-ai'
 import { completeSimple, getModel, streamSimple } from '@mariozechner/pi-ai'
 import { buildPromptHash } from '../cache.js'
+import { completeGoogleWithGrounding } from '../llm/providers/google.js'
 import { createSyntheticModel } from '../llm/providers/shared.js'
 import { buildAutoModelAttempts } from '../model-auto.js'
 import { resolveRunContextState } from '../run/run-context.js'
@@ -549,6 +550,23 @@ async function resolveAgentModel({
   throw new Error('No model available for agent')
 }
 
+const GROUNDING_RESEARCH_SYSTEM_PROMPT = `You are a Research Assistant performing web research to fill knowledge gaps identified in a deep analysis.
+
+# Purpose
+Use Google Search to find current, accurate information for each research proposal. Synthesize findings into clear, actionable insights.
+
+# Tone
+Professional, objective, and thorough. Cite sources when possible.
+
+# Output Format
+For each research topic, provide:
+1. A heading with the topic name
+2. Key findings from web search
+3. How this affects or updates the original analysis
+4. Source references when available
+
+Use Markdown with hierarchical headers. Use blockquote callouts for important caveats or corrections.`
+
 export async function streamAgentResponse({
   env,
   pageUrl,
@@ -561,6 +579,7 @@ export async function streamAgentResponse({
   onChunk,
   onAssistant,
   signal,
+  grounding,
 }: {
   env: Record<string, string | undefined>
   pageUrl: string
@@ -573,8 +592,63 @@ export async function streamAgentResponse({
   onChunk: (text: string) => void
   onAssistant: (assistant: AssistantMessage) => void
   signal?: AbortSignal
+  grounding?: boolean
 }): Promise<void> {
   const normalizedMessages = normalizeMessages(messages)
+
+  // When grounding is enabled, use Gemini with Google Search Retrieval
+  if (grounding) {
+    const { apiKeys } = await resolveAgentModel({
+      env,
+      pageContent,
+      modelOverride,
+    })
+
+    const googleApiKey = apiKeys.googleApiKey
+    if (!googleApiKey) {
+      throw new Error(
+        'Research requires a Google Gemini API key. Please add GEMINI_API_KEY to ~/.summarize/.env'
+      )
+    }
+
+    // Build user prompt from chat messages
+    const userParts: string[] = []
+    for (const msg of normalizedMessages) {
+      if (msg.role === 'user') {
+        const content = (msg as { content?: unknown }).content
+        if (typeof content === 'string') {
+          userParts.push(content)
+        }
+      } else if (msg.role === 'assistant') {
+        const content = (msg as { content?: unknown }).content
+        if (typeof content === 'string') {
+          userParts.push(`[Previous analysis]:\n${content}`)
+        }
+      }
+    }
+
+    const groundingModelId = 'gemini-2.0-flash'
+    const systemPrompt = `${GROUNDING_RESEARCH_SYSTEM_PROMPT}\n\nPage URL: ${pageUrl}\n${pageTitle ? `Page Title: ${pageTitle}` : ''}`
+    const userPrompt = userParts.join('\n\n')
+
+    const result = await completeGoogleWithGrounding({
+      modelId: groundingModelId,
+      apiKey: googleApiKey,
+      systemPrompt,
+      userPrompt,
+      maxOutputTokens: 8192,
+      timeoutMs: 120_000,
+    })
+
+    onChunk(result.text)
+    onAssistant({
+      role: 'assistant',
+      content: [{ type: 'text', text: result.text }],
+      timestamp: Date.now(),
+    } as AssistantMessage)
+    return
+  }
+
   const toolList = automationEnabled
     ? tools
         .map((toolName) => TOOL_DEFINITIONS[toolName])

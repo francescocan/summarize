@@ -16,6 +16,7 @@ import type { Prompt } from '../../../llm/prompt.js'
 import { buildAutoModelAttempts } from '../../../model-auto.js'
 import {
   buildLinkSummaryPrompt,
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
   SUMMARY_LENGTH_TARGET_CHARACTERS,
   SUMMARY_SYSTEM_PROMPT,
 } from '../../../prompts/index.js'
@@ -596,6 +597,7 @@ export async function summarizeExtractedUrl({
   onModelChosen,
   slides,
   slidesOutput,
+  systemPromptOverride,
 }: {
   ctx: UrlFlowContext
   url: string
@@ -609,10 +611,11 @@ export async function summarizeExtractedUrl({
     ReturnType<typeof import('../../../slides/index.js').extractSlidesForSource>
   > | null
   slidesOutput?: SlidesTerminalOutput | null
+  systemPromptOverride?: string | null
 }) {
   const { io, flags, model, cache: cacheState, hooks } = ctx
 
-  const promptPayload: Prompt = { system: SUMMARY_SYSTEM_PROMPT, userText: prompt }
+  const promptPayload: Prompt = { system: systemPromptOverride ?? SUMMARY_SYSTEM_PROMPT, userText: prompt }
   const promptTokens = countTokens(promptPayload.userText)
   const kindForAuto = extracted.siteName === 'YouTube' ? ('youtube' as const) : ('website' as const)
 

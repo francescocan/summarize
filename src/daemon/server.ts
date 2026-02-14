@@ -707,6 +707,10 @@ export async function runDaemonServer({
         const languageRaw = typeof obj.language === 'string' ? obj.language.trim() : ''
         const promptRaw = typeof obj.prompt === 'string' ? obj.prompt : ''
         const promptOverride = promptRaw.trim() || null
+        const analysisMode =
+          typeof obj.analysisMode === 'string' && obj.analysisMode === 'deep-analysis'
+            ? ('deep-analysis' as const)
+            : ('summarize' as const)
         const noCache = Boolean(obj.noCache)
         const extractOnly = Boolean(obj.extractOnly)
         const modeRaw = typeof obj.mode === 'string' ? obj.mode.trim().toLowerCase() : ''
@@ -976,6 +980,7 @@ export async function runDaemonServer({
                     cache: requestCache,
                     mediaCache,
                     overrides,
+                    analysisMode,
                     slides: slidesSettings,
                     hooks: {
                       ...(includeContentLog
@@ -1113,6 +1118,7 @@ export async function runDaemonServer({
                     cache: requestCache,
                     mediaCache,
                     overrides,
+                    analysisMode,
                   })
             }
 
@@ -1255,6 +1261,7 @@ export async function runDaemonServer({
           ? obj.tools.filter((tool): tool is string => typeof tool === 'string')
           : []
         const automationEnabled = Boolean(obj.automationEnabled)
+        const grounding = Boolean(obj.grounding)
 
         if (!pageUrl) {
           json(res, 400, { ok: false, error: 'missing url' }, cors)
@@ -1320,6 +1327,7 @@ export async function runDaemonServer({
               onChunk: (text) => writeEvent({ event: 'chunk', data: { text } }),
               onAssistant: (assistant) => writeEvent({ event: 'assistant', data: assistant }),
               signal: controller.signal,
+              grounding,
             })
           )
           writeEvent({ event: 'done', data: {} })

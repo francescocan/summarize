@@ -7,6 +7,8 @@ import {
   normalizeColorScheme,
 } from './theme'
 
+export type AnalysisModeSetting = 'summarize' | 'deep-analysis'
+
 export type Settings = {
   token: string
   autoSummarize: boolean
@@ -39,6 +41,7 @@ export type Settings = {
   lineHeight: number
   colorScheme: ColorScheme
   colorMode: ColorMode
+  analysisMode: AnalysisModeSetting
 }
 
 export type SlidesLayout = 'strip' | 'gallery'
@@ -196,6 +199,11 @@ function normalizeLineHeight(value: unknown): number {
   return Math.round(value * 100) / 100
 }
 
+function normalizeAnalysisMode(value: unknown): AnalysisModeSetting {
+  if (value === 'deep-analysis') return 'deep-analysis'
+  return 'summarize'
+}
+
 export const defaultSettings: Settings = {
   token: '',
   autoSummarize: true,
@@ -229,6 +237,7 @@ export const defaultSettings: Settings = {
   lineHeight: 1.45,
   colorScheme: defaultColorScheme,
   colorMode: defaultColorMode,
+  analysisMode: 'summarize',
 }
 
 export async function loadSettings(): Promise<Settings> {
@@ -299,6 +308,7 @@ export async function loadSettings(): Promise<Settings> {
     lineHeight: normalizeLineHeight(raw.lineHeight),
     colorScheme: normalizeColorScheme(raw.colorScheme),
     colorMode: normalizeColorMode(raw.colorMode),
+    analysisMode: normalizeAnalysisMode(raw.analysisMode),
   }
 }
 
@@ -325,6 +335,7 @@ export async function saveSettings(settings: Settings): Promise<void> {
       lineHeight: normalizeLineHeight(settings.lineHeight),
       colorScheme: normalizeColorScheme(settings.colorScheme),
       colorMode: normalizeColorMode(settings.colorMode),
+      analysisMode: normalizeAnalysisMode(settings.analysisMode),
     },
   })
 }

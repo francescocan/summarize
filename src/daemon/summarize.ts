@@ -1,6 +1,11 @@
 import type { CacheState } from '../cache.js'
+import type { AnalysisMode } from '@steipete/summarize-core'
 import { type ExtractedLinkContent, isYouTubeUrl, type MediaCache } from '../content/index.js'
 import type { RunMetricsReport } from '../costs.js'
+import {
+  buildDeepAnalysisPrompt,
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+} from '../prompts/index.js'
 import { buildFinishLineVariants, buildLengthPartsForFinishLine } from '../run/finish-line.js'
 import { deriveExtractionUi } from '../run/flows/url/extract.js'
 import { runUrlFlow } from '../run/flows/url/flow.js'
@@ -152,6 +157,7 @@ export async function streamSummaryForVisiblePage({
   cache,
   mediaCache,
   overrides,
+  analysisMode,
 }: {
   env: Record<string, string | undefined>
   fetchImpl: typeof fetch
@@ -165,6 +171,7 @@ export async function streamSummaryForVisiblePage({
   cache: CacheState
   mediaCache: MediaCache | null
   overrides: RunOverrides
+  analysisMode?: AnalysisMode | null
 }): Promise<{ usedModel: string; metrics: VisiblePageMetrics }> {
   const startedAt = Date.now()
   let usedModel: string | null = null
@@ -249,17 +256,37 @@ export async function streamSummaryForVisiblePage({
       characters: extracted.totalCharacters,
     }),
   })
-  writeStatus?.('Summarizing…')
+  const isDeepAnalysis = analysisMode === 'deep-analysis'
+  writeStatus?.(isDeepAnalysis ? 'Analyzing…' : 'Summarizing…')
 
   const extractionUi = deriveExtractionUi(extracted)
-  const prompt = buildUrlPrompt({
-    extracted,
-    outputLanguage: ctx.flags.outputLanguage,
-    lengthArg: ctx.flags.lengthArg,
-    promptOverride: ctx.flags.promptOverride ?? null,
-    lengthInstruction: ctx.flags.lengthInstruction ?? null,
-    languageInstruction: ctx.flags.languageInstruction ?? null,
-  })
+
+  const isYouTube = extracted.siteName === 'YouTube'
+  const hasTranscript =
+    isYouTube ||
+    (extracted.transcriptSource !== null && extracted.transcriptSource !== 'unavailable')
+
+  const prompt = isDeepAnalysis
+    ? buildDeepAnalysisPrompt({
+        url: extracted.url,
+        title: extracted.title,
+        siteName: extracted.siteName,
+        description: extracted.description,
+        content: extracted.content,
+        truncated: extracted.truncated,
+        hasTranscript,
+        outputLanguage: ctx.flags.outputLanguage,
+        promptOverride: ctx.flags.promptOverride ?? null,
+        languageInstruction: ctx.flags.languageInstruction ?? null,
+      })
+    : buildUrlPrompt({
+        extracted,
+        outputLanguage: ctx.flags.outputLanguage,
+        lengthArg: ctx.flags.lengthArg,
+        promptOverride: ctx.flags.promptOverride ?? null,
+        lengthInstruction: ctx.flags.lengthInstruction ?? null,
+        languageInstruction: ctx.flags.languageInstruction ?? null,
+      })
 
   await summarizeExtractedUrl({
     ctx,
@@ -270,6 +297,7 @@ export async function streamSummaryForVisiblePage({
     effectiveMarkdownMode: 'off',
     transcriptionCostLabel: null,
     onModelChosen: ctx.hooks.onModelChosen ?? null,
+    systemPromptOverride: isDeepAnalysis ? DEEP_ANALYSIS_SYSTEM_PROMPT : null,
   })
 
   const report = await ctx.hooks.buildReport()
@@ -308,6 +336,7 @@ export async function streamSummaryForUrl({
   overrides,
   slides,
   hooks,
+  analysisMode,
 }: {
   env: Record<string, string | undefined>
   fetchImpl: typeof fetch
@@ -338,6 +367,7 @@ export async function streamSummaryForUrl({
       }
     }) => void
   } | null
+  analysisMode?: AnalysisMode | null
 }): Promise<{ usedModel: string; metrics: VisiblePageMetrics }> {
   const startedAt = Date.now()
   let usedModel: string | null = null

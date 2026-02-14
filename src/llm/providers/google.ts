@@ -123,3 +123,98 @@ export async function completeGoogleDocument({
     clearTimeout(timeout)
   }
 }
+
+export async function completeGoogleWithGrounding({
+  modelId,
+  apiKey,
+  systemPrompt,
+  userPrompt,
+  maxOutputTokens,
+  timeoutMs,
+  fetchImpl,
+  googleBaseUrlOverride,
+}: {
+  modelId: string
+  apiKey: string
+  systemPrompt: string
+  userPrompt: string
+  maxOutputTokens?: number
+  timeoutMs: number
+  fetchImpl?: typeof fetch
+  googleBaseUrlOverride?: string | null
+}): Promise<{ text: string; usage: LlmTokenUsage | null; groundingMetadata?: unknown }> {
+  const baseUrl =
+    resolveBaseUrlOverride(googleBaseUrlOverride) ??
+    'https://generativelanguage.googleapis.com/v1beta'
+  const url = new URL(`${baseUrl.replace(/\/$/, '')}/models/${modelId}:generateContent`)
+  url.searchParams.set('key', apiKey)
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const payload = {
+    system_instruction: {
+      parts: [{ text: systemPrompt }],
+    },
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: userPrompt }],
+      },
+    ],
+    tools: [
+      {
+        google_search_retrieval: {
+          dynamic_retrieval_config: {
+            mode: 'MODE_DYNAMIC',
+            dynamic_threshold: 0.3,
+          },
+        },
+      },
+    ],
+    generationConfig: {
+      ...(typeof maxOutputTokens === 'number' ? { maxOutputTokens } : {}),
+    },
+  }
+
+  const resolveFetch = fetchImpl ?? globalThis.fetch
+  try {
+    const response = await resolveFetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    })
+
+    const bodyText = await response.text()
+    if (!response.ok) {
+      const error = new Error(`Google API error (${response.status}) during grounding search.`)
+      ;(error as { statusCode?: number }).statusCode = response.status
+      ;(error as { responseBody?: string }).responseBody = bodyText
+      throw error
+    }
+
+    const data = JSON.parse(bodyText) as {
+      candidates?: Array<{
+        content?: { parts?: Array<{ text?: string }> }
+        groundingMetadata?: unknown
+      }>
+      usageMetadata?: unknown
+    }
+
+    const text = (data.candidates ?? [])
+      .flatMap((candidate) => candidate.content?.parts ?? [])
+      .map((part) => (typeof part.text === 'string' ? part.text : ''))
+      .join('')
+      .trim()
+
+    const groundingMetadata = data.candidates?.[0]?.groundingMetadata ?? null
+
+    if (!text) {
+      throw new Error(`LLM returned an empty response during grounding search (model google/${modelId}).`)
+    }
+
+    return { text, usage: normalizeGoogleUsage(data.usageMetadata), groundingMetadata }
+  } finally {
+    clearTimeout(timeout)
+  }
+}

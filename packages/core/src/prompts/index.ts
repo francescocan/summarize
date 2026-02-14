@@ -17,3 +17,4 @@ export {
   SUMMARY_LENGTH_TARGET_CHARACTERS,
 } from './summary-lengths.js'
 export { SUMMARY_SYSTEM_PROMPT } from './summary-system.js'
+export { DEEP_ANALYSIS_SYSTEM_PROMPT, buildDeepAnalysisPrompt } from './deep-analysis-system.js'

@@ -246,6 +246,7 @@ let automationEnabledValue = defaultSettings.automationEnabled
 let slidesEnabledValue = defaultSettings.slidesEnabled
 let slidesParallelValue = defaultSettings.slidesParallel
 let slidesOcrEnabledValue = defaultSettings.slidesOcrEnabled
+let analysisMode: 'summarize' | 'deep-analysis' = defaultSettings.analysisMode
 let autoKickTimer = 0
 
 const MAX_CHAT_MESSAGES = 1000
@@ -587,7 +588,7 @@ async function requestAgent(
   messages: Message[],
   tools: string[],
   summary?: string | null,
-  opts?: { onChunk?: (text: string) => void }
+  opts?: { onChunk?: (text: string) => void; grounding?: boolean }
 ) {
   const requestId = crypto.randomUUID()
   // Track this request so background can deliver the answer even after tab switch
@@ -613,7 +614,14 @@ async function requestAgent(
       },
       onChunk: opts?.onChunk,
     })
-    void send({ type: 'panel:agent', requestId, messages, tools, summary })
+    void send({
+      type: 'panel:agent',
+      requestId,
+      messages,
+      tools,
+      summary,
+      ...(opts?.grounding ? { grounding: true } : {}),
+    })
   })
   return response
 }
@@ -746,6 +754,12 @@ function setSlidesLayout(next: SlidesLayout) {
   applySlidesLayout()
 }
 
+function handleAnalysisModeChange(value: 'summarize' | 'deep-analysis') {
+  analysisMode = value
+  void patchSettings({ analysisMode: value })
+  refreshSummarizeControl()
+}
+
 const summarizeControl = mountSummarizeControl(summarizeControlRoot, {
   mode: inputMode,
   slidesEnabled: slidesEnabledValue,
@@ -757,6 +771,8 @@ const summarizeControl = mountSummarizeControl(summarizeControlRoot, {
   onSlidesTextModeChange: handleSlidesTextModeChange,
   onChange: handleSummarizeControlChange,
   onSummarize: () => sendSummarize(),
+  analysisMode,
+  onAnalysisModeChange: handleAnalysisModeChange,
 })
 
 function refreshSummarizeControl() {
@@ -773,6 +789,8 @@ function refreshSummarizeControl() {
     onSlidesTextModeChange: handleSlidesTextModeChange,
     onChange: handleSummarizeControlChange,
     onSummarize: () => sendSummarize(),
+    analysisMode,
+    onAnalysisModeChange: handleAnalysisModeChange,
   })
 }
 
@@ -3675,6 +3693,7 @@ function updateControls(state: UiState) {
   automationEnabledValue = state.settings.automationEnabled
   slidesEnabledValue = state.settings.slidesEnabled
   slidesParallelValue = state.settings.slidesParallel
+  analysisMode = state.settings.analysisMode ?? 'summarize'
   const nextSlidesOcrEnabled = Boolean(state.settings.slidesOcrEnabled)
   if (nextSlidesOcrEnabled !== slidesOcrEnabledValue) {
     slidesOcrEnabledValue = nextSlidesOcrEnabled
@@ -3918,6 +3937,7 @@ function sendSummarize(opts?: { refresh?: boolean }) {
     type: 'panel:summarize',
     refresh: Boolean(opts?.refresh),
     inputMode: inputModeOverride ?? undefined,
+    analysisMode: analysisMode !== 'summarize' ? analysisMode : undefined,
   })
 }
 
@@ -4127,6 +4147,7 @@ async function runAgentLoop() {
           streamedContent += text
           chatController.updateStreamingMessage(streamedContent)
         },
+        grounding: analysisMode === 'deep-analysis',
       })
     } catch (error) {
       chatController.removeMessage(streamingMessage.id)

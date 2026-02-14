@@ -57,6 +57,7 @@ export function buildSummarizeRequestBody({
   inputMode,
   timestamps,
   slides,
+  analysisMode,
 }: {
   extracted: ExtractedPage
   settings: Settings
@@ -69,8 +70,12 @@ export function buildSummarizeRequestBody({
     maxSlides?: number | null
     minDurationSeconds?: number | null
   }
+  analysisMode?: string
 }): Record<string, unknown> {
   const baseBody = buildDaemonRequestBody({ extracted, settings, noCache })
+  if (analysisMode === 'deep-analysis') {
+    baseBody.analysisMode = 'deep-analysis'
+  }
   const withTimestamps = timestamps ? { ...baseBody, timestamps: true } : baseBody
   const slidesEnabled = Boolean(slides?.enabled)
   const slidesOcr = Boolean(slides?.ocr)

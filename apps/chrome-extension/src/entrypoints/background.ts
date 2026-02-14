@@ -19,13 +19,14 @@ import { parseSseStream } from '../lib/sse'
 
 type PanelToBg =
   | { type: 'panel:ready' }
-  | { type: 'panel:summarize'; refresh?: boolean; inputMode?: 'page' | 'video' }
+  | { type: 'panel:summarize'; refresh?: boolean; inputMode?: 'page' | 'video'; analysisMode?: string }
   | {
       type: 'panel:agent'
       requestId: string
       messages: Message[]
       tools: string[]
       summary?: string | null
+      grounding?: boolean
     }
   | {
       type: 'panel:chat-history'
@@ -1118,7 +1119,7 @@ export default defineBackground(() => {
   const summarizeActiveTab = async (
     session: PanelSession,
     reason: string,
-    opts?: { refresh?: boolean; inputMode?: 'page' | 'video' }
+    opts?: { refresh?: boolean; inputMode?: 'page' | 'video'; analysisMode?: string }
   ) => {
     if (!isPanelOpen(session)) return
 
@@ -1424,6 +1425,7 @@ export default defineBackground(() => {
         inputMode: effectiveInputMode,
         timestamps: summaryTimestamps,
         slides: summarySlides,
+        analysisMode: opts?.analysisMode,
       })
       logPanel('summarize:request', {
         url: resolvedPayload.url,
@@ -1713,6 +1715,7 @@ export default defineBackground(() => {
           {
             refresh: Boolean((raw as { refresh?: boolean }).refresh),
             inputMode: (raw as { inputMode?: 'page' | 'video' }).inputMode,
+            analysisMode: (raw as { analysisMode?: string }).analysisMode,
           }
         )
         break
@@ -1775,6 +1778,7 @@ export default defineBackground(() => {
             messages: Message[]
             tools: string[]
             summary?: string | null
+            grounding?: boolean
           }
           const agentController = new AbortController()
           session.agentControllers.set(agentPayload.requestId, agentController)
@@ -1840,6 +1844,7 @@ export default defineBackground(() => {
                 language: settings.language,
                 tools: agentPayload.tools,
                 automationEnabled: settings.automationEnabled,
+                ...(agentPayload.grounding ? { grounding: true } : {}),
               }),
               signal: agentController.signal,
             })
