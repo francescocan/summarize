@@ -427,8 +427,8 @@ export async function streamSummaryForUrl({
     stdoutSink: { writeChunk: sink.writeChunk },
   })
 
-  writeStatus?.('Extracting…')
-  await runUrlFlow({ ctx, url: input.url, isYoutubeUrl: isYouTubeUrl(input.url) })
+  writeStatus?.(analysisMode === 'deep-analysis' ? 'Analyzing…' : 'Extracting…')
+  await runUrlFlow({ ctx, url: input.url, isYoutubeUrl: isYouTubeUrl(input.url), analysisMode })
 
   const extracted = extractedRef.value
   if (!extracted) {

@@ -43,15 +43,19 @@ import { createMarkdownConverters } from './markdown.js'
 import { createSlidesTerminalOutput } from './slides-output.js'
 import { buildUrlPrompt, outputExtractedUrl, summarizeExtractedUrl } from './summary.js'
 import type { UrlFlowContext } from './types.js'
+import type { AnalysisMode } from '@steipete/summarize-core'
+import { buildDeepAnalysisPrompt, DEEP_ANALYSIS_SYSTEM_PROMPT } from '@steipete/summarize-core/prompts'
 
 export async function runUrlFlow({
   ctx,
   url,
   isYoutubeUrl,
+  analysisMode,
 }: {
   ctx: UrlFlowContext
   url: string
   isYoutubeUrl: boolean
+  analysisMode?: AnalysisMode | null
 }): Promise<void> {
   if (!url) {
     throw new Error('Only HTTP and HTTPS URLs can be summarized')
@@ -694,15 +698,34 @@ export async function runUrlFlow({
       slidesForPrompt = await slidesTimelinePromise
     }
 
-    const prompt = buildUrlPrompt({
-      extracted,
-      outputLanguage: flags.outputLanguage,
-      lengthArg: flags.lengthArg,
-      promptOverride: flags.promptOverride ?? null,
-      lengthInstruction: flags.lengthInstruction ?? null,
-      languageInstruction: flags.languageInstruction ?? null,
-      slides: slidesForPrompt ?? slidesExtracted ?? null,
-    })
+    const isDeepAnalysis = analysisMode === 'deep-analysis'
+    const isYouTube = extracted.siteName === 'YouTube'
+    const hasTranscript =
+      isYouTube ||
+      (extracted.transcriptSource !== null && extracted.transcriptSource !== 'unavailable')
+
+    const prompt = isDeepAnalysis
+      ? buildDeepAnalysisPrompt({
+          url: extracted.url,
+          title: extracted.title,
+          siteName: extracted.siteName,
+          description: extracted.description,
+          content: extracted.content,
+          truncated: extracted.truncated,
+          hasTranscript,
+          outputLanguage: flags.outputLanguage,
+          promptOverride: flags.promptOverride ?? null,
+          languageInstruction: flags.languageInstruction ?? null,
+        })
+      : buildUrlPrompt({
+          extracted,
+          outputLanguage: flags.outputLanguage,
+          lengthArg: flags.lengthArg,
+          promptOverride: flags.promptOverride ?? null,
+          lengthInstruction: flags.lengthInstruction ?? null,
+          languageInstruction: flags.languageInstruction ?? null,
+          slides: slidesForPrompt ?? slidesExtracted ?? null,
+        })
 
     // Whisper transcription costs need to be folded into the finish line totals.
     const transcriptionCostUsd = estimateWhisperTranscriptionCostUsd({
@@ -776,6 +799,7 @@ export async function runUrlFlow({
       onModelChosen,
       slides: slidesExtracted ?? slidesForPrompt ?? null,
       slidesOutput,
+      systemPromptOverride: isDeepAnalysis ? DEEP_ANALYSIS_SYSTEM_PROMPT : null,
     })
   } finally {
     if (flags.progressEnabled) {
