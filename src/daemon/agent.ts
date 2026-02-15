@@ -627,7 +627,7 @@ export async function streamAgentResponse({
       }
     }
 
-    const groundingModelId = 'gemini-2.0-flash'
+    const groundingModelId = 'gemini-2.5-flash'
     const systemPrompt = `${GROUNDING_RESEARCH_SYSTEM_PROMPT}\n\nPage URL: ${pageUrl}\n${pageTitle ? `Page Title: ${pageTitle}` : ''}`
     const userPrompt = userParts.join('\n\n')
 

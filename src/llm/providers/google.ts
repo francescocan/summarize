@@ -163,12 +163,7 @@ export async function completeGoogleWithGrounding({
     ],
     tools: [
       {
-        google_search_retrieval: {
-          dynamic_retrieval_config: {
-            mode: 'MODE_DYNAMIC',
-            dynamic_threshold: 0.3,
-          },
-        },
+        google_search: {},
       },
     ],
     generationConfig: {
@@ -187,7 +182,18 @@ export async function completeGoogleWithGrounding({
 
     const bodyText = await response.text()
     if (!response.ok) {
-      const error = new Error(`Google API error (${response.status}) during grounding search.`)
+      // Extract the actual error message from Google's response
+      let detail = ''
+      try {
+        const errJson = JSON.parse(bodyText) as { error?: { message?: string; status?: string } }
+        detail = errJson?.error?.message ?? ''
+      } catch {
+        // bodyText isn't JSON, use it raw (truncated)
+        detail = bodyText.slice(0, 200)
+      }
+      const error = new Error(
+        `Google API error (${response.status}) during grounding search.${detail ? ` Details: ${detail}` : ''}`
+      )
       ;(error as { statusCode?: number }).statusCode = response.status
       ;(error as { responseBody?: string }).responseBody = bodyText
       throw error
