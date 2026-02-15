@@ -60,7 +60,7 @@ After building the extension, reload in `chrome://extensions`. The extension out
 - `src/daemon/flow-context.ts` — `createDaemonUrlFlowContext()` — builds the UrlFlowContext used by runUrlFlow
 - `src/run/flows/url/flow.ts` — `runUrlFlow()` — the main URL extraction + summarization pipeline. Accepts `analysisMode` to branch between standard and deep analysis prompts
 - `src/run/flows/url/summary.ts` — `summarizeExtractedUrl()` — sends prompt to LLM. Accepts `systemPromptOverride` to swap the system prompt
-- `src/llm/providers/google.ts` — Google Gemini provider; includes `completeGoogleWithGrounding()` for Gemini API with `google_search_retrieval`
+- `src/llm/providers/google.ts` — Google Gemini provider; includes `completeGoogleWithGrounding()` for Gemini API with `google_search` tool (grounding)
 
 ### Chrome Extension
 - `apps/chrome-extension/src/entrypoints/background.ts` — Background service worker (message routing, daemon communication, SSE handling). Forwards `analysisMode` to daemon, `grounding` to agent
@@ -134,9 +134,9 @@ Sidepanel                    Background                     Daemon (agent.ts)
       |   {grounding: true}         |                              |
       |                              |-- POST /v1/agent ---------->|
       |                              |   {grounding: true}         |-- if grounding:
-      |                              |                              |   force model = gemini-2.0-flash
+      |                              |                              |   force model = gemini-2.5-flash
       |                              |                              |   completeGoogleWithGrounding()
-      |                              |                              |   (Gemini v1beta + google_search_retrieval)
+      |                              |                              |   (Gemini v1beta + google_search tool)
       |                              |<--- SSE response ------------|
       |<--- agent:response ---------|                              |
 ```
@@ -226,7 +226,9 @@ Forgetting to wire `runUrlFlow()` will make the feature appear to work in tests 
 - API keys are stored in `~/.summarize/daemon.json` under `env` (also in `~/.summarize/.env` which the daemon reads separately)
 
 ### Gemini Grounding
-- Uses Gemini API `v1beta` (not v1) for `google_search_retrieval` tool support
+- Uses Gemini API `v1beta` (not v1) with the `google_search` tool (the older `google_search_retrieval` with `dynamic_retrieval_config` was deprecated by Google for Gemini 2.0+ models and returns 400)
 - `completeGoogleWithGrounding()` in `google.ts` makes a raw HTTP call bypassing the `pi-ai` library (which doesn't support grounding natively)
+- Grounding model: `gemini-2.5-flash` (hardcoded in `agent.ts`). Previously `gemini-2.0-flash` which is deprecated and shutting down March 2026
 - Requires `GEMINI_API_KEY` in daemon config
 - The `grounding` flag is sent from the extension when `analysisMode === 'deep-analysis'` and the user is in chat
+- Error responses from Google now include the actual API error message for easier debugging

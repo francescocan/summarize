@@ -227,3 +227,5 @@ All these are changes made in the fork, not in the original repo:
 8. **Chat timeout**: 360s instead of 60s
 9. **SSE keepalive**: Proper comment format and skip in parser
 10. **Daemon keepalive SSE format**: server.ts sends `: keepalive\n\n`
+11. **Deep Analysis mode**: `AnalysisMode` type (`summarize` | `deep-analysis`), `buildDeepAnalysisPrompt()` in `packages/core/src/prompts/deep-analysis-system.ts`, wired through both summarization paths
+12. **Gemini Grounding**: `completeGoogleWithGrounding()` in `google.ts` uses `google_search: {}` tool (v1beta API), model `gemini-2.5-flash` hardcoded in `agent.ts`. Raw HTTP call (not pi-ai) since grounding isn't natively supported by the library

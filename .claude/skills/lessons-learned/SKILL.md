@@ -114,6 +114,29 @@ Reference this skill when debugging issues or making changes to avoid repeating 
 
 ---
 
+## Lesson 13: Google Grounding API Format Changed (`google_search_retrieval` → `google_search`)
+
+**Problem**: The `completeGoogleWithGrounding()` function was using the deprecated `google_search_retrieval` tool with `dynamic_retrieval_config: { mode: 'MODE_DYNAMIC', dynamic_threshold: 0.3 }`. Google deprecated this format for Gemini 2.0+ models. The API returned a 400 error: "Please use google_search field instead of google_search_retrieval field." The original error handler didn't include the actual Google error message, making this hard to diagnose.
+
+**Fix applied**:
+1. Changed tool payload from `{ google_search_retrieval: { dynamic_retrieval_config: {...} } }` to `{ google_search: {} }` in `google.ts`
+2. Upgraded grounding model from `gemini-2.0-flash` (deprecated, shutting down March 2026) to `gemini-2.5-flash` in `agent.ts`
+3. Improved error reporting to parse and include Google's actual error message from the JSON response body
+
+**Rule**: Always include the actual API error details when throwing errors from HTTP responses — generic "error (status)" messages hide the root cause. Also: Google regularly deprecates API tool formats; when a grounding call fails, check the [official docs](https://ai.google.dev/gemini-api/docs/google-search) for the current format.
+
+---
+
+## Lesson 14: Daemon Restart May Not Kill Old Process
+
+**Problem**: Running `daemon restart` via Scheduled Task didn't always kill the old Node process. The old PID kept running the pre-fix code while the new process failed to bind the port (or never started). Health check returned the old PID, confirming stale code was serving requests.
+
+**Fix applied**: Force-killed the old process with `taskkill //F //PID <old_pid>`, then restarted.
+
+**Rule**: After significant daemon code changes, verify the PID changed after restart (`GET /health` returns `pid`). If same PID, force-kill it. On Windows Git Bash, use `//F` (double slash) for taskkill flags.
+
+---
+
 ## Debugging Tips
 
 1. **Extension logs**: Options page > Logs tab. Look for `agent:error`, `bg:send-failed`, `chat:background-response-saved` events.
